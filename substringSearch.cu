@@ -29,7 +29,8 @@ __global__ void search_kernel(char * string, char * results, int * numbers, int 
     int patternLength = 5;
     char pattern[6] = "hello";
 
-    // Ignore threads longer than our input data
+    // This data can't match since there isn't enough room for the full pattern
+    // at the end of the array 
     if(idx >= length - patternLength - 1) {
        numbers[idx] = idx;
        return;

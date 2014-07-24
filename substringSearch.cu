@@ -32,6 +32,7 @@ __global__ void search_kernel(char * string, char * results, int * numbers, int 
     // This data can't match since there isn't enough room for the full pattern
     // at the end of the array 
     if(idx >= length - patternLength - 1) {
+       results[idx] = string[idx];
        numbers[idx] = idx;
        return;
     }
@@ -50,7 +51,7 @@ __global__ void search_kernel(char * string, char * results, int * numbers, int 
     }
 }
 
-int search(char * string, char * results, int length) {
+void search(char * string, char * results, int length) {
     char * string_dev,  *result_dev;
     //int patternLength = 5;
     //cudaError_t err;
@@ -87,12 +88,12 @@ int search(char * string, char * results, int length) {
     //cudaMemGetInfo(&free, &total);
     //printf("\nFree Mem:  %zu, Total Mem: %zu \n", free, total); 
 
-    errorChecking( cudaMalloc((void **) &string_dev, 
-       sizeof(char) * length), __LINE__);
-    errorChecking( cudaMalloc((void **) &result_dev, 
-       sizeof(char) * length), __LINE__);
-    errorChecking( cudaMalloc((void **) &numbers_dev, 
-       sizeof(int) * length), __LINE__);
+    errorChecking( cudaMalloc((void **) &string_dev, sizeof(char) * length), 
+       __LINE__);
+    errorChecking( cudaMalloc((void **) &result_dev, sizeof(char) * length), 
+       __LINE__);
+    errorChecking( cudaMalloc((void **) &numbers_dev, sizeof(int) * length), 
+       __LINE__);
 
     for(int i = 0; i < numStreams; ++i){
         streamOffset = i * streamLength;
@@ -114,8 +115,6 @@ int search(char * string, char * results, int length) {
         
     for(int i = 0; i < numStreams; ++i){
         streamOffset = i * streamLength;
-        printf("Streamoffset = %d\n", streamOffset);
-        printf("Streamoffset + length = %d\n", streamOffset + streamLength);
         search_kernel<<<dimGrid.x, dimBlock.x, 0, stream[i]>>>(string_dev, 
            result_dev, numbers_dev, length, streamOffset);
 
@@ -154,66 +153,101 @@ int search(char * string, char * results, int length) {
     cudaFree(result_dev);
     cudaFreeHost(count);
     cudaFreeHost(numbers);  
-    return length;
 }
 
+// Grab data from exterior file
+int get_string_from_file(char *filename, char **input) {
+    FILE *file;
+    int length;
+    size_t result;
 
+    file = fopen(filename, "r");
+    fseek(file, 0, SEEK_END);
+    length = ftell(file);
+    int paddedLength = numStreams * ceil((float)length/numStreams);
+    rewind(file);
+
+    errorChecking( cudaMallocHost((void**) input, paddedLength * sizeof(char)), 
+        __LINE__ );
+    if(*input == NULL) {
+        fputs("Memory error", stderr);
+        exit(2);
+    }
+
+    result = fread(*input, 1, length, file);
+    if(result != length) {
+        fputs("Reading error", stderr);
+        exit(3);
+    }
+    fclose(file);
+    if(paddedLength > length) {
+        for(int i = length - 1; i < paddedLength - 1; i++) {
+            (*input)[i] = 0;
+        }
+        (*input)[paddedLength - 1] = '\0';
+    }
+    return paddedLength; 
+}
+
+// Generate simple string
+int generate_string(int length, char **input) {
+    int paddedLength = numStreams * ceil((float)length/numStreams);
+    errorChecking( cudaMallocHost((void**) input, paddedLength * sizeof(char)), 
+        __LINE__ );
+    if(*input == NULL) {
+        fputs("Memory error", stderr);
+        exit(2);
+    }
+    for(int i = 0; i < paddedLength - 2; i++) {
+        (*input)[i] = 'a';
+    }
+    (*input)[paddedLength - 1] = '\0';
+    return paddedLength; 
+}
 
 int main(void) {
     int length = 1024;
-
-    struct timeval start, end;
     char * string;
+    struct timeval start, end;
     char * results;
-    int testLength = numStreams * ceil((float)length/numStreams);
-   
-    if(testLength > length) {
-        length = testLength;
-        // Add some padding to the input string as needed here
-    }
-    errorChecking( cudaMallocHost((void**) &string, 
-        length * sizeof(char)), __LINE__ );
-    errorChecking( cudaMallocHost((void**) &results, 
-        length * sizeof(char)), __LINE__ );
 
+    //length = generate_string(length, &string); 
+    length = get_string_from_file("input.txt", &string); 
+    errorChecking( cudaMallocHost((void**) &results, length * sizeof(char)), 
+        __LINE__ );
+
+    string[4] = 'h'; 
+    string[5] = 'e'; 
+    string[6] = 'l'; 
+    string[7] = 'l'; 
+    string[8] = 'o'; 
+   
+    string[554] = 'h';
+    string[555] = 'e';
+    string[556] = 'l';
+    string[557] = 'l';
+    string[558] = 'o';
  
-     for(int i = 0; i < length-1; ++i){
-        string[i] = 'a'; 
-    }   
-   string[length-1] = '\0';
-   
-   string[4] = 'h'; 
-   string[5] = 'e'; 
-   string[6] = 'l'; 
-   string[7] = 'l'; 
-   string[8] = 'o'; 
-   
-   string[104] = 'h'; 
-   string[105] = 'e'; 
-   string[106] = 'l'; 
-   string[107] = 'l'; 
-   string[108] = 'o'; 
-   string[1022] = 'b';
+    string[1004] = 'h'; 
+    string[1005] = 'e'; 
+    string[1006] = 'l'; 
+    string[1007] = 'l'; 
+    string[1008] = 'o'; 
+    string[1022] = 'b';
 
-   printf("String is: %s\n",string);
-
+    printf("String is: %s\n",string);
 
     gettimeofday(&start, 0); 
-    length = search(string, results, length);
+    search(string, results, length);
     gettimeofday(&end, 0); 
 
     long long elapsed = (end.tv_sec-start.tv_sec)*1000000ll + end.tv_usec-start.tv_usec;
     printf("GPU Time: %lld \n", elapsed);
 
-
     results[length-1] = '\0';
     printf("results: %s\n", results);
 
-
-
     cudaFreeHost(string);
     cudaFreeHost(results);
-
-
     return 0;
 }

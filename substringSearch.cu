@@ -24,7 +24,7 @@ void errorChecking(cudaError_t err, int line) {
 __global__ void search_kernel(char * string, char * results, int * numbers, int length, int offset) {
     int tx = threadIdx.x;
     int idx = offset + blockDim.x * blockIdx.x + tx; 
-    int match = 1; 
+    int match = 0; 
 
     int patternLength = 5;
     char pattern[6] = "hello";
@@ -33,21 +33,20 @@ __global__ void search_kernel(char * string, char * results, int * numbers, int 
     // at the end of the array 
     if(idx >= length - patternLength - 1) {
        results[idx] = string[idx];
-       numbers[idx] = idx;
        return;
     }
 
     for(int j = 0; j < patternLength; ++j){
-       if((pattern[j] ^ string[idx + j]) != 0x0000 ){
-          match = 0; 
+       if((pattern[j] ^ string[idx + j]) == 0x0000 ){
+          match += 1; 
        }
     }
     
     results[idx] = string[idx];
-    numbers[idx] = idx; 
 
-    if(match) {
+    if(match == patternLength) {
        atomicAdd(&count_dev,1);
+       numbers[idx] = 1;
     }
 }
 
@@ -140,12 +139,17 @@ void search(char * string, char * results, int length) {
     cudaStreamSynchronize(stream[2]); 
   
     
-    int total = 0; 
+    int total = 0;
+    int arrayTotal = 0; 
+    for(int i =0; i < length; ++i){
+        arrayTotal += numbers[i];
+    }
+    
     for(int i =0; i < numStreams; ++i){
         total += count[i];
     }
     
-    printf("Count is: %d\n", total);
+    printf("Count is: %d\nArray total is: %d\n", total, arrayTotal);
   
    /* printf("Numbers\n");
     for(int i = 0; i < length; ++i){

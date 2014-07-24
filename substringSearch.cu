@@ -55,6 +55,7 @@ void search(char * string, char * results, int length) {
     char * string_dev,  *result_dev;
     //int patternLength = 5;
     //cudaError_t err;
+    //int * count;
     int * count;
     int streamOffset;
     cudaStream_t stream[numStreams];
@@ -69,12 +70,14 @@ void search(char * string, char * results, int length) {
         numbers[i] = 0;
     }
 
-    errorChecking( cudaMallocHost( (void**) &count, sizeof(int) ), __LINE__);
-
+    
+    errorChecking( cudaMallocHost( (void**) &count, sizeof(int) * numStreams ), __LINE__);
     for( int i = 0; i < numStreams; ++ i){
         errorChecking( cudaStreamCreate(&stream[i] ), __LINE__);
+        count[i] = 0;
     }
-    *count = 0; 
+    
+    
     int streamLength = ceil((float)length/numStreams);
     int streamBytes = streamLength * sizeof(char);
 
@@ -127,7 +130,7 @@ void search(char * string, char * results, int length) {
            &result_dev[streamOffset],  streamLength * sizeof(char), 
            cudaMemcpyDeviceToHost, stream[i]), __LINE__);
         
-        errorChecking(cudaMemcpyFromSymbolAsync(count, count_dev, 
+        errorChecking(cudaMemcpyFromSymbolAsync(&count[i], count_dev, 
            sizeof(int), 0, cudaMemcpyDeviceToHost, stream[i]), __LINE__);
         
         errorChecking(cudaMemcpyAsync(&numbers[streamOffset], 
@@ -136,15 +139,21 @@ void search(char * string, char * results, int length) {
     }
     cudaStreamSynchronize(stream[2]); 
   
-    printf("Count is: %d\n", *count);
+    
+    int total = 0; 
+    for(int i =0; i < numStreams; ++i){
+        total += count[i];
+    }
+    
+    printf("Count is: %d\n", total);
   
-    printf("Numbers\n");
+   /* printf("Numbers\n");
     for(int i = 0; i < length; ++i){
         printf("%d ",numbers[i]);
     
     }
     printf("\n");
-
+*/
  
     for(int i = 0; i < numStreams; ++i){ 
         errorChecking(cudaStreamDestroy(stream[i]), __LINE__); 
@@ -164,6 +173,7 @@ int get_string_from_file(char *filename, char **input) {
     file = fopen(filename, "r");
     fseek(file, 0, SEEK_END);
     length = ftell(file);
+    printf("File Length is: %d bytes.\n", length);
     int paddedLength = numStreams * ceil((float)length/numStreams);
     rewind(file);
 
@@ -212,10 +222,12 @@ int main(void) {
     char * results;
 
     //length = generate_string(length, &string); 
-    length = get_string_from_file("input.txt", &string); 
+    length = get_string_from_file("UnicodeSample.txt", &string); 
     errorChecking( cudaMallocHost((void**) &results, length * sizeof(char)), 
         __LINE__ );
 
+    printf("Padded length is: %d bytes.\n", length);
+/*
     string[4] = 'h'; 
     string[5] = 'e'; 
     string[6] = 'l'; 
@@ -234,8 +246,8 @@ int main(void) {
     string[1007] = 'l'; 
     string[1008] = 'o'; 
     string[1022] = 'b';
-
-    printf("String is: %s\n",string);
+*/
+  //  printf("String is: %s\n",string);
 
     gettimeofday(&start, 0); 
     search(string, results, length);
@@ -245,7 +257,7 @@ int main(void) {
     printf("GPU Time: %lld \n", elapsed);
 
     results[length-1] = '\0';
-    printf("results: %s\n", results);
+    //printf("results: %s\n", results);
 
     cudaFreeHost(string);
     cudaFreeHost(results);

@@ -1,6 +1,7 @@
-/* SCRATCH CODE
-Compile with nvcc -gencode arch=compute_30,code=sm_30 substringSearch.cu
-*/
+/* 
+ * Compile with 
+ * nvcc -gencode arch=compute_30,code=sm_30 substringSearch.cu
+ */
 
 
 #include <stdio.h>
@@ -8,7 +9,7 @@ Compile with nvcc -gencode arch=compute_30,code=sm_30 substringSearch.cu
 #include <limits.h>
 
 #define numStreams 3
-#define BLOCK 256
+#define BLOCK 1024 
 
 __device__ int count_dev;
 
@@ -21,61 +22,101 @@ void errorChecking(cudaError_t err, int line) {
     }
 }
 
-__global__ void search_kernel(char * string, char * results, int * numbers, int length, int offset) {
+__global__ void search_kernel(char *string, int length, int offset, char *pattern,
+    int patternLength) {
     int tx = threadIdx.x;
     int idx = offset + blockDim.x * blockIdx.x + tx; 
     int match = 0; 
+    __shared__ char string_sh[BLOCK];
+    __shared__ int count_shared;
+    extern __shared__ char pattern_sh[];
 
-    int patternLength = 5;
-    char pattern[6] = "hello";
+    // Load data into cache
+    if(tx == 0) 
+        count_shared = 0;
+    if(tx < patternLength)
+        pattern_sh[tx] = pattern[tx];
+    string_sh[tx] = string[idx]; 
+    __syncthreads();
 
     // This data can't match since there isn't enough room for the full pattern
     // at the end of the array 
     if(idx >= length - patternLength - 1) {
-       results[idx] = string[idx];
        return;
     }
 
     for(int j = 0; j < patternLength; ++j){
-       if((pattern[j] ^ string[idx + j]) == 0x0000 ){
+       if(tx + j < BLOCK && ((pattern_sh[j] ^ string_sh[tx + j]) == 0x0000 )) {
           match += 1; 
        }
+       else if((pattern_sh[j] ^ string[idx + j]) == 0x0000) {
+          match += 1;
+       } 
+
     }
-    
-    results[idx] = string[idx];
 
     if(match == patternLength) {
-       atomicAdd(&count_dev,1);
-       numbers[idx] = 1;
+       atomicAdd(&count_shared,1);
     }
+
+    __syncthreads();
+
+    if (tx == 0)
+      atomicAdd(&count_dev, count_shared);
 }
 
-void search(char * string, char * results, int length) {
-    char * string_dev,  *result_dev;
-    //int patternLength = 5;
-    //cudaError_t err;
-    //int * count;
-    int * count;
+// Checks for a match where the streams overlap
+int boundary_check(char *string, char *pattern, int pattern_length, int stream_length) {
+    int match = 0;
+    int pattern_pos, start_pos, end_pos;
+
+    for(int i = 1; i <= numStreams; i++) {
+        // There might be a valid match that includes all characters in the pattern but 
+        // the last one. This is pos (stream_length - 1) - pattern_length - 1.
+        // There might also be a match that includes just the first character in the
+        // pattern. This match would end at pos (stream_length - 1) + pattern_length - 1 
+        start_pos = stream_length * i - pattern_length - 2;
+        end_pos = stream_length * i + pattern_length - 1;
+        pattern_pos = 0;
+        
+        // if a match is found in previous for loop, break from loop.
+        // The length of the interval is only long enough for a maximum of one
+        // match
+        if(match == pattern_length) break;
+  
+        for(int j = start_pos; j < end_pos; j++) {
+            // Check for char match. If found, increment and continue.
+            // Otherwise, reset
+            if(string[j] == pattern[pattern_pos]) {
+                pattern_pos++;
+                match++;
+
+                // If match is found, break from the loop
+                if(match == pattern_length) break;
+            }
+
+            else {
+                pattern_pos = 0;
+                match = 0;
+            }
+        }
+    }
+    if(match == pattern_length) 
+        return 1;
+    else   
+        return 0;
+}
+
+void search(char * string, int length, char *pattern, int patternLength) {
+    char * string_dev, *pattern_dev;
+    int count = 0;
     int streamOffset;
     cudaStream_t stream[numStreams];
-    //size_t free, free2, total;
-    int * numbers; 
-    int * numbers_dev;
     int numThreads = BLOCK;
 
-    errorChecking( cudaMallocHost( (void**) &numbers, 
-        sizeof(int) * length ), __LINE__);
-    for(int i = 0; i < length; ++i){
-        numbers[i] = 0;
-    }
-
-    
-    errorChecking( cudaMallocHost( (void**) &count, sizeof(int) * numStreams ), __LINE__);
     for( int i = 0; i < numStreams; ++ i){
         errorChecking( cudaStreamCreate(&stream[i] ), __LINE__);
-        count[i] = 0;
     }
-    
     
     int streamLength = ceil((float)length/numStreams);
     int streamBytes = streamLength * sizeof(char);
@@ -87,88 +128,48 @@ void search(char * string, char * results, int length) {
 
     printf("dimGrid.x: %d Threads: %d \n" , dimGrid.x, dimBlock.x);
 
-    //cudaMemGetInfo(&free, &total);
-    //printf("\nFree Mem:  %zu, Total Mem: %zu \n", free, total); 
-
     errorChecking( cudaMalloc((void **) &string_dev, sizeof(char) * length), 
-       __LINE__);
-    errorChecking( cudaMalloc((void **) &result_dev, sizeof(char) * length), 
-       __LINE__);
-    errorChecking( cudaMalloc((void **) &numbers_dev, sizeof(int) * length), 
-       __LINE__);
+        __LINE__);
+    errorChecking( cudaMalloc((void **) &pattern_dev, sizeof(char) * patternLength + 1),
+        __LINE__);
+
+    errorChecking( cudaMemcpyToSymbol(count_dev, &count, 
+        sizeof(int), 0, cudaMemcpyHostToDevice), __LINE__);
+    errorChecking( cudaMemcpy(pattern_dev, pattern, patternLength + 1 * sizeof(char),
+        cudaMemcpyHostToDevice), __LINE__);   
 
     for(int i = 0; i < numStreams; ++i){
         streamOffset = i * streamLength;
         printf("streamOffset is: %d\n", streamOffset);
 
-        errorChecking( cudaMemcpyAsync(&numbers_dev[streamOffset], 
-            &numbers[streamOffset], streamLength * sizeof(int), 
-            cudaMemcpyHostToDevice, stream[i] ), __LINE__);
-        
-        errorChecking( cudaMemcpyToSymbolAsync(count_dev, count, 
-            sizeof(int), 0, cudaMemcpyHostToDevice, stream[i]), __LINE__);
-    
         errorChecking( cudaMemcpyAsync(&string_dev[streamOffset], 
             &string[streamOffset],  streamLength * sizeof(char), 
             cudaMemcpyHostToDevice, stream[i] ), __LINE__);
     }    
-        //cudaMemGetInfo(&free2, &total);
-        //printf("Free Mem:  %zu, Total Mem: %zu \n", free2, total);
         
     for(int i = 0; i < numStreams; ++i){
         streamOffset = i * streamLength;
-        search_kernel<<<dimGrid.x, dimBlock.x, 0, stream[i]>>>(string_dev, 
-           result_dev, numbers_dev, length, streamOffset);
+        search_kernel<<<dimGrid.x, dimBlock.x, patternLength, stream[i]>>>(string_dev, 
+           length, streamOffset, pattern, patternLength);
 
         errorChecking(cudaGetLastError(), __LINE__);
     }    
 
-    for(int i = 0; i < numStreams; ++i){
-        streamOffset = i * streamLength;
-        errorChecking(cudaMemcpyAsync(&results[streamOffset], 
-           &result_dev[streamOffset],  streamLength * sizeof(char), 
-           cudaMemcpyDeviceToHost, stream[i]), __LINE__);
-        
-        errorChecking(cudaMemcpyFromSymbolAsync(&count[i], count_dev, 
-           sizeof(int), 0, cudaMemcpyDeviceToHost, stream[i]), __LINE__);
-        
-        errorChecking(cudaMemcpyAsync(&numbers[streamOffset], 
-           &numbers_dev[streamOffset],  streamLength * sizeof(int), 
-           cudaMemcpyDeviceToHost, stream[i]), __LINE__);
-    }
     cudaStreamSynchronize(stream[2]); 
+    
+    errorChecking(cudaMemcpyFromSymbol(&count, count_dev, 
+        sizeof(int), 0, cudaMemcpyDeviceToHost), __LINE__);
+    
+    //count += boundary_check(string, pattern, patternLength, streamLength);    
+    printf("Count is: %d\n", count);
   
-    
-    int total = 0;
-    int arrayTotal = 0; 
-    for(int i =0; i < length; ++i){
-        arrayTotal += numbers[i];
-    }
-    
-    for(int i =0; i < numStreams; ++i){
-        total += count[i];
-    }
-    
-    printf("Count is: %d\nArray total is: %d\n", total, arrayTotal);
-  
-   /* printf("Numbers\n");
-    for(int i = 0; i < length; ++i){
-        printf("%d ",numbers[i]);
-    
-    }
-    printf("\n");
-*/
- 
     for(int i = 0; i < numStreams; ++i){ 
         errorChecking(cudaStreamDestroy(stream[i]), __LINE__); 
     }
     cudaFree(string_dev);
-    cudaFree(result_dev);
-    cudaFreeHost(count);
-    cudaFreeHost(numbers);  
 }
 
-// Grab data from exterior file
+// Grab data from external file
 int get_string_from_file(char *filename, char **input) {
     FILE *file;
     int length;
@@ -216,54 +217,51 @@ int generate_string(int length, char **input) {
         (*input)[i] = 'a';
     }
     (*input)[paddedLength - 1] = '\0';
+
+    int midStream = ceil((float)length/numStreams) - 3;
+    printf("Midstream: %d\n", midStream);
+    (*input)[midStream] = 'h';
+    (*input)[midStream+1] = 'e';
+    (*input)[midStream+2] = 'l';
+    (*input)[midStream+3] = 'l'; 
+    (*input)[midStream+4] = 'o';
+
     return paddedLength; 
+}
+
+int get_pattern(char **pattern) {
+    int patternLength = 5;    
+    errorChecking( cudaMallocHost((void**) pattern, (patternLength + 1) * sizeof(char)),
+        __LINE__ );
+    (*pattern)[0] = 'h';
+    (*pattern)[1] = 'e';
+    (*pattern)[2] = 'l';
+    (*pattern)[3] = 'l';
+    (*pattern)[4] = 'o';
+    (*pattern)[5] = '\0';
+
+    return patternLength;
 }
 
 int main(void) {
     int length = 1024;
-    char * string;
+    char *string, *pattern;
+    int patternLength;
     struct timeval start, end;
-    char * results;
-
-    //length = generate_string(length, &string); 
+    //length = generate_string(length, &string);
     length = get_string_from_file("UnicodeSample.txt", &string); 
-    errorChecking( cudaMallocHost((void**) &results, length * sizeof(char)), 
-        __LINE__ );
-
+    patternLength = get_pattern(&pattern);
+    printf("Pattern is: %s\n", pattern); 
     printf("Padded length is: %d bytes.\n", length);
-/*
-    string[4] = 'h'; 
-    string[5] = 'e'; 
-    string[6] = 'l'; 
-    string[7] = 'l'; 
-    string[8] = 'o'; 
-   
-    string[554] = 'h';
-    string[555] = 'e';
-    string[556] = 'l';
-    string[557] = 'l';
-    string[558] = 'o';
- 
-    string[1004] = 'h'; 
-    string[1005] = 'e'; 
-    string[1006] = 'l'; 
-    string[1007] = 'l'; 
-    string[1008] = 'o'; 
-    string[1022] = 'b';
-*/
-  //  printf("String is: %s\n",string);
+    //printf("Input is: %s.\n", string);
 
     gettimeofday(&start, 0); 
-    search(string, results, length);
+    search(string, length, pattern, patternLength);
     gettimeofday(&end, 0); 
 
     long long elapsed = (end.tv_sec-start.tv_sec)*1000000ll + end.tv_usec-start.tv_usec;
     printf("GPU Time: %lld \n", elapsed);
 
-    results[length-1] = '\0';
-    //printf("results: %s\n", results);
-
     cudaFreeHost(string);
-    cudaFreeHost(results);
     return 0;
 }

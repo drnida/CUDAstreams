@@ -23,19 +23,26 @@ void errorChecking(cudaError_t err, int line) {
 }
 
 __global__ void search_kernel(char *string, int length, int offset, char *pattern,
-    int patternLength) {
+        int patternLength) {
+
     int tx = threadIdx.x;
     int idx = offset + blockDim.x * blockIdx.x + tx; 
     int match = 0; 
-    __shared__ char string_sh[BLOCK];
     __shared__ int count_shared;
-    extern __shared__ char pattern_sh[];
+
+    // dynamically allocated shared memory
+    extern __shared__ char shared[];
+    char *string_sh = &shared[0]; // size BLOCK + patternLength for halo data
+    char *pattern_sh = &shared[BLOCK + patternLength]; 
 
     // Load data into cache
     if(tx == 0) 
         count_shared = 0;
-    if(tx < patternLength)
+    // These threads load the pattern into shared plus the halo data
+    if(tx < patternLength) {
         pattern_sh[tx] = pattern[tx];
+        shared[BLOCK + tx] = string[idx + BLOCK];
+    }
     string_sh[tx] = string[idx]; 
     __syncthreads();
 
@@ -46,13 +53,9 @@ __global__ void search_kernel(char *string, int length, int offset, char *patter
     }
 
     for(int j = 0; j < patternLength; ++j){
-       if(tx + j < BLOCK && ((pattern_sh[j] ^ string_sh[tx + j]) == 0x0000 )) {
+       if((pattern_sh[j] ^ string_sh[tx + j]) == 0x0000 ) {
           match += 1; 
        }
-       else if((pattern_sh[j] ^ string[idx + j]) == 0x0000) {
-          match += 1;
-       } 
-
     }
 
     if(match == patternLength) {
@@ -149,7 +152,9 @@ void search(char * string, int length, char *pattern, int patternLength) {
         
     for(int i = 0; i < numStreams; ++i){
         streamOffset = i * streamLength;
-        search_kernel<<<dimGrid.x, dimBlock.x, patternLength, stream[i]>>>(string_dev, 
+        // sharedMem stores the lengths used in the kernel for shared memory
+        int sharedMem = (BLOCK+patternLength) * sizeof(char)+patternLength * sizeof(char);
+        search_kernel<<<dimGrid.x, dimBlock.x, sharedMem, stream[i]>>>(string_dev, 
            length, streamOffset, pattern, patternLength);
 
         errorChecking(cudaGetLastError(), __LINE__);

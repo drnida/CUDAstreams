@@ -28,9 +28,19 @@ void errorChecking(cudaError_t err, int line) {
 __global__ void search_kernel(char * pattern, int pattern_length, char * string, int string_length, int offset) {
    int tx = threadIdx.x;
    int idx = offset + blockDim.x * blockIdx.x + tx; 
+   extern __shared__ char shared[];
+   char *string_sh = &shared[0];
+   char *pattern_sh = &shared[BLOCK + pattern_length];
+
+   if(tx < pattern_length) {
+      pattern_sh[tx] = pattern[tx];
+      shared[BLOCK + tx] = string[idx + BLOCK];
+   }
+   string_sh[tx] = string[idx];
+   __syncthreads();
 
    for(int j = 0; j < pattern_length; ++j)
-      if(pattern[j] ^ string[idx + j])
+      if(pattern_sh[j] ^ string_sh[tx + j])
          return;
 
    atomicAdd(&count_dev,1);
@@ -123,11 +133,12 @@ int search(char * pattern, int pattern_length, char * string, int string_length)
                cudaMemcpyHostToDevice, stream[i] ), __LINE__);
 
    }    
-
+   int sharedMem = (BLOCK+pattern_length) * sizeof(char)+pattern_length * sizeof(char);
    for(int i = 0; i < numStreams; ++i){
-      streamOffset = i * streamLength;
-      search_kernel<<<dimGrid.x, dimBlock.x, 0, stream[i]>>>(pattern_dev, pattern_length,
-            string_dev, string_length, streamOffset);
+      streamOffset = i * streamLength; 
+      
+      search_kernel<<<dimGrid.x, dimBlock.x, sharedMem, stream[i]>>>
+         (pattern_dev, pattern_length, string_dev, string_length, streamOffset);
 
       errorChecking(cudaGetLastError(), __LINE__);
    }    
@@ -180,7 +191,7 @@ int get_string_from_file(char *filename, char **input) {
       (*input)[paddedLength - 1] = '\0';
    }
 
-   printf("\n\nDEBUG: strlen(string) == %d\n\n", strlen(*input));
+   printf("\n\nDEBUG: strlen(string) == %lu\n\n", strlen(*input));
    return paddedLength; 
 }
 
@@ -190,9 +201,9 @@ int count_keys_in_file(char *filename, char * string, int string_length) {
    FILE *infile;
    FILE *outfile;
    int length;
-   size_t result;
-   int pattern_length = 0;
-   char * pattern;
+   //size_t result;
+   //int pattern_length = 0;
+   //char * pattern;
    char BUFFER[BUFF_SIZE];
    char TEMP[512];
    int word_count = 0;

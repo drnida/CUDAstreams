@@ -6,8 +6,8 @@
 
 
 #f = open("filetest.txt",'r')
-#f = open("TwitSample.txt",'r')
-f = open("UnicodeSample.txt",'r')
+f = open("TwitSample.txt",'r')
+#f = open("UnicodeSample.txt",'r')
 
 
 

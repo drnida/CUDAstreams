@@ -28,19 +28,19 @@ void errorChecking(cudaError_t err, int line) {
 __global__ void search_kernel(char * pattern, int pattern_length, char * string, int string_length, int offset) {
    int tx = threadIdx.x;
    int idx = offset + blockDim.x * blockIdx.x + tx; 
-   extern __shared__ char shared[];
-   char *string_sh = &shared[0];
-   char *pattern_sh = &shared[BLOCK + pattern_length];
+   //extern __shared__ char shared[];
+   //char *string_sh = &shared[0];
+   //char *pattern_sh = &shared[BLOCK + pattern_length];
 
-   if(tx < pattern_length) {
-      pattern_sh[tx] = pattern[tx];
-      shared[BLOCK + tx] = string[idx + BLOCK];
-   }
-   string_sh[tx] = string[idx];
-   __syncthreads();
+   //if(tx < pattern_length) {
+      //pattern_sh[tx] = pattern[tx];
+      //shared[BLOCK + tx] = string[idx + BLOCK];
+   //}
+   //string_sh[tx] = string[idx];
+   //__syncthreads();
 
    for(int j = 0; j < pattern_length; ++j)
-      if(pattern_sh[j] ^ string_sh[tx + j])
+      if(pattern[j] ^ string[idx + j])
          return;
 
    atomicAdd(&count_dev,1);
@@ -84,8 +84,6 @@ void itoa(int n, char s[])
 //(to prevent too many concurrent streams)?
 int search(char * pattern, int pattern_length, char * string, int string_length) {
    //These two lines just debug to make sure my formatting is correct.
-   static int debug = 0;
-   return debug++;
 
    //Couldn't get this stuff to work
    char * string_dev;
@@ -125,7 +123,7 @@ int search(char * pattern, int pattern_length, char * string, int string_length)
       printf("streamOffset is: %d\n", streamOffset);
 
       errorChecking( cudaMemcpyAsync(pattern_dev, 
-               &pattern,  pattern_length * sizeof(char), 
+               pattern,  pattern_length * sizeof(char), 
                cudaMemcpyHostToDevice, stream[i] ), __LINE__);
 
       errorChecking( cudaMemcpyAsync(&string_dev[streamOffset], 
@@ -133,11 +131,12 @@ int search(char * pattern, int pattern_length, char * string, int string_length)
                cudaMemcpyHostToDevice, stream[i] ), __LINE__);
 
    }    
-   int sharedMem = (BLOCK+pattern_length) * sizeof(char)+pattern_length * sizeof(char);
+   //int sharedMem = (BLOCK+pattern_length) * sizeof(char)+pattern_length * sizeof(char);
    for(int i = 0; i < numStreams; ++i){
       streamOffset = i * streamLength; 
       
-      search_kernel<<<dimGrid.x, dimBlock.x, sharedMem, stream[i]>>>
+                                          //VVV sharedMem goes here
+      search_kernel<<<dimGrid.x, dimBlock.x, 0, stream[i]>>>
          (pattern_dev, pattern_length, string_dev, string_length, streamOffset);
 
       errorChecking(cudaGetLastError(), __LINE__);
@@ -209,7 +208,8 @@ int count_keys_in_file(char *filename, char * string, int string_length) {
    int word_count = 0;
    int current_string_index = 0;
 
-   string_length = 1024;
+
+   //string_length = 1024;
 
    for (int i = 0; i < BUFF_SIZE; ++i)
       BUFFER[i] = '\0';
@@ -217,11 +217,19 @@ int count_keys_in_file(char *filename, char * string, int string_length) {
    infile = fopen(filename, "r");
    outfile = fopen("key_value_pairs.txt", "a");
 
-   while(fgets(BUFFER, BUFF_SIZE, infile) != NULL)
+   int stopme = 0;
+   while(fgets(BUFFER, BUFF_SIZE, infile) != NULL && stopme < 150)
    {
-      length = strlen(BUFFER);
-      word_count = search(BUFFER, length, &string[current_string_index], string_length);
-      current_string_index += string_length;
+      //++stopme;
+
+      length = strlen(BUFFER) - 1;
+      if(BUFFER[length] == '\n')
+         BUFFER[length] = '\0';
+      else
+         ++length;
+      word_count = search(BUFFER, length, string, string_length);
+      //current_string_index += string_length;
+      ++length;
       BUFFER[length - 1] = ' ';
       BUFFER[length + 0] = '|';
       BUFFER[length + 1] = ' ';
@@ -229,8 +237,8 @@ int count_keys_in_file(char *filename, char * string, int string_length) {
       strcpy(&BUFFER[length + 2], TEMP);
       BUFFER[strlen(BUFFER) + 1] = '\0';
       BUFFER[strlen(BUFFER)] = '\n';
-      fputs(BUFFER, outfile);
-      //printf("\n%s%d", BUFFER, length);
+
+      int blah = fputs(BUFFER, outfile);
    }
 
    fclose(outfile);

@@ -114,10 +114,10 @@ void search(char * string, int length, char *pattern, int patternLength) {
     char * string_dev, *pattern_dev;
     int count = 0;
     int streamOffset;
-    cudaStream_t stream[numStreams];
+    cudaStream_t stream[16];
     int numThreads = BLOCK;
 
-    for( int i = 0; i < numStreams; ++ i){
+    for( int i = 0; i < 16; ++ i){
         errorChecking( cudaStreamCreate(&stream[i] ), __LINE__);
     }
     
@@ -141,6 +141,8 @@ void search(char * string, int length, char *pattern, int patternLength) {
     errorChecking( cudaMemcpy(pattern_dev, pattern, patternLength + 1 * sizeof(char),
         cudaMemcpyHostToDevice), __LINE__);   
 
+
+
     for(int i = 0; i < numStreams; ++i){
         streamOffset = i * streamLength;
         printf("streamOffset is: %d\n", streamOffset);
@@ -149,26 +151,40 @@ void search(char * string, int length, char *pattern, int patternLength) {
             &string[streamOffset],  streamLength * sizeof(char), 
             cudaMemcpyHostToDevice, stream[i] ), __LINE__);
     }    
-        
+
+
     for(int i = 0; i < numStreams; ++i){
+        cudaStreamSynchronize(stream[i]); 
+    }
+
+
+for(int i = 0; i < 20; ++i ){
+        int sharedMem = (BLOCK+patternLength) * sizeof(char)+patternLength * sizeof(char);
+    for(int i = 0; i < 16; ++i){
         streamOffset = i * streamLength;
         // sharedMem stores the lengths used in the kernel for shared memory
-        int sharedMem = (BLOCK+patternLength) * sizeof(char)+patternLength * sizeof(char);
-        search_kernel<<<dimGrid.x, dimBlock.x, sharedMem, stream[i]>>>(string_dev, 
-           length, streamOffset, pattern, patternLength);
+        search_kernel<<<ceil(length/1024.0), 1024, sharedMem, stream[i]>>>(string_dev, 
+           length, 0, pattern, patternLength);
 
         errorChecking(cudaGetLastError(), __LINE__);
     }    
 
-    cudaStreamSynchronize(stream[2]); 
+
+    for(int i = 0; i < 16; ++i){
+        cudaStreamSynchronize(stream[i]); 
+    }
+
+
+
     
     errorChecking(cudaMemcpyFromSymbol(&count, count_dev, 
         sizeof(int), 0, cudaMemcpyDeviceToHost), __LINE__);
+}
     
     //count += boundary_check(string, pattern, patternLength, streamLength);    
     printf("Count is: %d\n", count);
   
-    for(int i = 0; i < numStreams; ++i){ 
+    for(int i = 0; i < 16; ++i){ 
         errorChecking(cudaStreamDestroy(stream[i]), __LINE__); 
     }
     cudaFree(string_dev);

@@ -7,11 +7,13 @@
 #include <sys/time.h>
 #include <limits.h>
 
-#define numStreams 3
+#define numStreams 4
 #define BLOCK 256
 #define BUFF_SIZE 4096
 
-__device__ int count_dev[16];
+__device__ int count_dev[numStreams];
+
+
 
 /*error checking from D&W*/
 void errorChecking(cudaError_t err, int line) {
@@ -119,27 +121,29 @@ int get_string_from_file(char *filename, char **input) {
 int count_keys_in_file(char *filename, char * string_dev, int string_length, cudaStream_t * stream) {
    FILE *infile;
    FILE *outfile;
-   int length[16];
+   int length[numStreams];
    //size_t result;
    //int pattern_length = 0;
    //char * pattern;
-   char BUFFER[16][BUFF_SIZE];
+   char BUFFER[numStreams][BUFF_SIZE];
    char TEMP[512];
-   int word_count[16];
+   int word_count[numStreams];
    int current_string_index = 0;
    char * pattern_dev;
 
    int count = 0;
    dim3 dimGrid( ceil(string_length/1024.0), 1, 1);
    dim3 dimBlock(1024, 1, 1);
+   //printf("dimGrid.x: %d Threads: %d \n" , dimGrid.x, dimBlock.x);
 
 
-   for(int i = 0; i < 16; ++i){
+
+   for(int i = 0; i < numStreams; ++i){
        word_count[i] = 0;
    }
 
    //string_length = 1024;
-   for(int j = 0 ; j < 16; ++j){
+   for(int j = 0 ; j < numStreams; ++j){
        for (int i = 0; i < BUFF_SIZE; ++i){
           BUFFER[j][i] = '\0';
        }
@@ -148,15 +152,15 @@ int count_keys_in_file(char *filename, char * string_dev, int string_length, cud
    outfile = fopen("key_value_pairs.txt", "a");
 
 
-    errorChecking( cudaMalloc((void **) &pattern_dev, sizeof(char) * 16 * 1024), 
+    errorChecking( cudaMalloc((void **) &pattern_dev, sizeof(char) * numStreams * 1024), 
              __LINE__);
 
    int stopme = 0;
    int j;
    printf("Starting pos: %ld\n", ftell(infile));
    while( ! feof(infile) && stopme < 150){
-   for( int i = 0; i < 16 && fgets(BUFFER[i], BUFF_SIZE, infile) != NULL && stopme < 150; ++i) {
-      ++stopme;
+   for( int i = 0; i < numStreams && fgets(BUFFER[i], BUFF_SIZE, infile) != NULL && stopme < 150; ++i) {
+      //++stopme;
       j = i + 1;
          
 
@@ -166,20 +170,10 @@ int count_keys_in_file(char *filename, char * string_dev, int string_length, cud
              BUFFER[i][length[i]] = '\0';
           else
              ++length[i];
-      //--------------------------------------------------------------------------       
 
-
-
-
-       dim3 dimGrid( ceil(string_length/1024.0), 1, 1);
-       dim3 dimBlock(1024, 1, 1);
-
-       //printf("dimGrid.x: %d Threads: %d \n" , dimGrid.x, dimBlock.x);
-
-    //------------------------
 
        
-       errorChecking( cudaMemcpyToSymbolAsync(count_dev, &count, 
+          errorChecking( cudaMemcpyToSymbolAsync(count_dev, &count, 
                 sizeof(int), sizeof(int) * i, cudaMemcpyHostToDevice, stream[i]), __LINE__);
 
 
@@ -209,10 +203,9 @@ int count_keys_in_file(char *filename, char * string_dev, int string_length, cud
        //printf("Pattern is: %s Pos is: %ld Count is: %d\n", BUFFER[i], ftell(infile), word_count[i]);
        }
 
- //FIX      //waits until next for loop to snyc
-       for(int i = 0; i < j; ++i){
-        cudaStreamSynchronize(stream[i]); 
-       }
+
+
+        cudaDeviceSynchronize();
       //--------------------------------------------------------------------------
           //current_string_index += string_length;
        for(int i = 0; i < j  ; ++i){
@@ -264,9 +257,9 @@ int main(void) {
    struct timeval start, end;
    string_length = get_string_from_file("parsedComments.txt", &string); 
 
-   cudaStream_t stream[16];
+   cudaStream_t stream[numStreams];
 
-   for( int i = 0; i < 16; ++ i){
+   for( int i = 0; i < numStreams; ++ i){
       errorChecking( cudaStreamCreate(&stream[i] ), __LINE__);
    }
 
@@ -291,7 +284,7 @@ int main(void) {
 
 
 
-   for(int i = 0; i < 16; ++i){ 
+   for(int i = 0; i < numStreams; ++i){ 
       errorChecking(cudaStreamDestroy(stream[i]), __LINE__); 
    }
    

@@ -32,20 +32,47 @@ __global__ void search_kernel(char * patterns_and_output, int pattern_length, ch
    int j = 0;
 
    int count = 0;
-   //int * result = (int*)(patterns_and_output + idx*sizeof(char)*(pattern_section));
-   int * result = (int*)&patterns_and_output[idx * sizeof(char) * pattern_section];
+   int * result = (int*)(patterns_and_output + idx*sizeof(char)*(pattern_section));
+   //int * result = (int*)&patterns_and_output[idx * sizeof(char) * pattern_section];
    //char * pattern = (char*)(result + sizeof(int));
-   char * pattern = (char*)(result + sizeof(int));
+   char * pattern = (char*)(result);
    //*result = 0;
 
+   //char * pattern = patterns_and_output + idx*128;
+
+   const char *s;
+   //for(s = pattern; *s || *(s + 1) || *(s+2) || *(s+3); ++s) {}
+
+   for(s = pattern + pattern_section - sizeof(int); !(*s); --s) {}
+   pattern_length = (s - pattern) - 4;
+
+   pattern = pattern + 4;
+
+  // for(int i = 0; i <= pattern_length; ++i)
+  // {
+  //    pattern[i] = 'X';
+  // }
+
+   for(int i = 0; i < search_length - pattern_section; ++i)
+   {
+      if(pattern[0] == search_segment[i])
+      {
+         for(j = 0; pattern[j] == search_segment[i + j] && j <= pattern_length && pattern[j]; ++j) {}
+         if(j - 1 == pattern_length)
+            ++count;
+      }
+   }
+
+   *result = count;
+ //  *result = pattern_length;
    //for(int i = 0; i < pattern_section - sizeof(int); ++i)
 //   {
 //         *(result + sizeof(int)) = 'X';
 //         return;
 //   }
-   for (int i = 0; i < search_length - pattern_section; ++i)
-   {
-      if(!(*(search_segment + i) ^ *pattern)) {
+   //for (int i = 0; i < search_length - pattern_section; ++i)
+  // {
+    //  if(!(*(search_segment + i) ^ *pattern)) {
 //      temp_bool = 0;
 //      if( search_segment[i] == pattern[0])
   //    {
@@ -64,20 +91,20 @@ __global__ void search_kernel(char * patterns_and_output, int pattern_length, ch
    //      for(j = 0; !(*(pattern + j) ^ *(search_segment + i + j)) && 
      //          j < pattern_section - sizeof(int) && 
        //        *(pattern + j); ++j){} //NOTE SEMICOLON AT THE END OF THIS LOOP, it doesn't need to do anything
-         for(j = 0; pattern[j] == search_segment[i + j] && j < pattern_section - sizeof(int); ++j) {}
-         if(!pattern[j - 1])
+      //   for(j = 0; pattern[j] == search_segment[i + j] && j < pattern_section - sizeof(int); ++j) {}
+        // if(!pattern[j - 1])
      //       *result = 5;
          //if(!*(pattern + j) ^ *(search_segment + i + j))
-         if(pattern[j] == '\0')
-            ++count;
+         //if(pattern[j] == '\0')
+       //     ++count;
 
-      }
+     // }
    //for(int j = 0; j < pattern_section - sizeof(int); ++j)
      // if(pattern[j] ^ search_segment[i + j])
        //  return;
 
-   }
-   *result = (int)*pattern;
+   //}
+  // *result = pattern_length;
    //*result = sizeof(int);
    //extern __shared__ char shared[];
    //char *string_sh = &shared[0];
@@ -309,8 +336,12 @@ int create_key_results_string(char *filename, char ** string, int * key_count)
          *(*string + 128*i + j) = *(BUFFER + j);
       }
 
-      //if(j == 128)
-      //   *string[128*i + j] = '\0';
+      if(j == 128)
+      {
+         --i;
+         continue;
+         //*string[127*i + j] = '\0';
+      }
 
 
       for(; j < 128; ++j)

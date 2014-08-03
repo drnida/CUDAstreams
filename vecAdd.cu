@@ -8,20 +8,14 @@ typedef struct {
   	float w;
  }atom;
 
-
-
 __constant__ atom atominfo[numAtoms];
-
-
-
-
 __global__ void DCSv1(float * energygrid, float gridspacing, int numatoms){
-
 
     	int xindex = blockDim.x * blockIdx.x + threadIdx.x;
     	int yindex = blockDim.y * blockIdx.y + threadIdx.y;
+        int zindex = blockDim.z * blockIdx.z + threadIdx.z;
 
-        int outaddr = yindex * blockDim.x + xindex;
+        int outaddr = zindex * numAtoms * numAtoms + yindex * numAtoms + xindex;
 
 	float curenergy = energygrid[outaddr];
 	float coorx = gridspacing * xindex;
@@ -35,15 +29,7 @@ __global__ void DCSv1(float * energygrid, float gridspacing, int numatoms){
 
 	}
 	energygrid[outaddr] = curenergy + energyval;
-
-
 }
-
-
-
-
-
-
 
 
 void launch_DSCv1(float * energyGrid, int boxDim, atom * molecule , float gridDist){
@@ -95,7 +81,7 @@ int main(void) {
     atom molecule[numAtoms];   
 
 
-    int boxDim = 100;
+    int boxDim = numAtoms;
     float * energyGrid;
     float gridDist = 1; 
      energyGrid = (float * ) malloc( boxDim*boxDim*boxDim  * sizeof(float)); 

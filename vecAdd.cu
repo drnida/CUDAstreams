@@ -9,6 +9,16 @@ typedef struct {
  }atom;
 
 __constant__ atom atominfo[numAtoms];
+
+/*error checking from D&W*/
+void errorChecking(cudaError_t err, int line) {
+    if (err != cudaSuccess){
+        printf(" %s in %s at line %d\n", cudaGetErrorString(err),
+               __FILE__, line);
+        exit(EXIT_FAILURE);
+    }
+}
+
 __global__ void DCSv1(float * energygrid, float gridspacing, int numatoms){
 
     	int xindex = blockDim.x * blockIdx.x + threadIdx.x;
@@ -37,19 +47,50 @@ void launch_DSCv1(float * energyGrid, int boxDim, atom * molecule , float gridDi
     float spacing_dev; 
     int numatoms_dev;
     int num = numAtoms;
+    int allicateSize = sizeof(float) * boxDim*boxDim*boxDim;
+    cudaError_t err = cudaSuccess;
 
-    cudaMalloc((void **) &grid_dev, sizeof(float) * boxDim*boxDim*boxDim);
-    cudaMalloc((void **) &spacing_dev, sizeof(float) );
-    cudaMalloc((void **) &numatoms_dev, sizeof(int) );
+    float * fltarray;
+    
+    fltarray = (float * ) malloc( boxDim*boxDim*boxDim  * sizeof(float));
+    
+    errorChecking( cudaMalloc((void **) &grid_dev, allicateSize)        , __LINE__);
+    errorChecking( cudaMalloc((void **) &spacing_dev, sizeof(float) )                           , __LINE__);
+    errorChecking( cudaMalloc((void **) &numatoms_dev, sizeof(int) )                            , __LINE__);
 
-    // Step 2: Copy the input vectors to the device
-    cudaMemcpy(grid_dev, energyGrid, sizeof(float) * boxDim*boxDim*boxDim, cudaMemcpyHostToDevice);
-    cudaMemcpy(&spacing_dev, &gridDist, sizeof(float) * boxDim*boxDim*boxDim, cudaMemcpyHostToDevice);
-    cudaMemcpy(&numatoms_dev, &num, sizeof(int) *1 , cudaMemcpyHostToDevice);
+    
+    char * string_dev;
+    char string [5] = {"abcd"};
+    int length = 5;
+    
+    int size = allicate;
+    
+    float *h_A = (float *)malloc(size);
+    float *d_A = NULL;
+    err = cudaMalloc((void **)&d_A, size);
+    err = cudaMemcpy(d_A, h_A, size, cudaMemcpyHostToDevice);
+    
+    errorChecking(err, __LINE__);
+    errorChecking(err, __LINE__);
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    errorChecking(cudaMalloc((void **) &string_dev, sizeof(char) * length), __LINE__);
+    errorChecking(cudaMemcpy(string_dev, string, sizeof(char) * length, cudaMemcpyHostToDevice), __LINE__);
+    
+    errorChecking(  cudaMemcpy((void*)grid_dev, (void*)fltarray, allicateSize, cudaMemcpyHostToDevice)      , __LINE__);
+    errorChecking(  cudaMemcpy(&spacing_dev, &gridDist, sizeof(float) * boxDim*boxDim*boxDim, cudaMemcpyHostToDevice)   , __LINE__);
+    errorChecking(  cudaMemcpy(&numatoms_dev, &num, sizeof(int) *1 , cudaMemcpyHostToDevice)                            , __LINE__);
 
 
-    cudaMemcpyToSymbol(atominfo, &molecule,
-                sizeof(atom)*numAtoms, 0, cudaMemcpyHostToDevice);
+    errorChecking(  cudaMemcpyToSymbol(atominfo, &molecule, sizeof(atom)*numAtoms, 0, cudaMemcpyHostToDevice)           , __LINE__);
 
 
     // Step 3: Invoke the kernel
@@ -59,10 +100,13 @@ void launch_DSCv1(float * energyGrid, int boxDim, atom * molecule , float gridDi
     // hardware will support blocks of that size.
     dim3 dimGrid((boxDim + 1024 - 1) / 1024, (boxDim + 1024 - 1) / 1024, 1);
     dim3 dimBlock(1024, 1024, 1);
+    
     DCSv1<<<dimGrid, dimBlock>>>(grid_dev, spacing_dev, numatoms_dev);
-
+    errorChecking(cudaGetLastError(), __LINE__);
+    
+    
     // Step 4: Retrieve the results
-    cudaMemcpy(energyGrid, grid_dev, sizeof(float) * boxDim*boxDim*boxDim , cudaMemcpyDeviceToHost);
+    errorChecking( cudaMemcpy(energyGrid, grid_dev, sizeof(float) * boxDim*boxDim*boxDim , cudaMemcpyDeviceToHost), __LINE__);
 
     // Step 5: Free device memory
     cudaFree(grid_dev);
@@ -88,8 +132,14 @@ int main(void) {
 
 
     for (int i = 0; i <  boxDim*boxDim*boxDim ; ++i){
-       energyGrid[i] = 0;
-    } 
+       energyGrid[i] = 1;
+    }
+    
+    
+    for(int i = 0; i < 100; ++i){
+        
+        printf("%0.0f", energyGrid[i]);
+	}
 
     for( int i = 0; i < numAtoms; ++i){
       molecule[i].x = i; 
@@ -106,7 +156,7 @@ int main(void) {
 
      for(int i = 0; i < 100; ++i){
 
-	printf("%f", energyGrid[i]);
+	printf("%0.0f", energyGrid[i]);
 	}
 
 

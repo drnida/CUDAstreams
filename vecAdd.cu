@@ -31,7 +31,7 @@ __global__ void DCSv1(float *energygrid, float *gridspacing, int *numatoms){
    int xindex = blockDim.x * blockIdx.x + threadIdx.x;
    int yindex = blockDim.y * blockIdx.y + threadIdx.y;
    int outaddr = yindex * numAtoms + xindex;
-/*
+
    float curenergy = energygrid[outaddr];
    float coorx = (*gridspacing) * xindex;
    float coory = (*gridspacing) * yindex;
@@ -41,27 +41,28 @@ __global__ void DCSv1(float *energygrid, float *gridspacing, int *numatoms){
       float dx = coorx - atominfo[atomid].x;
       float dy = coory - atominfo[atomid].y;
       energyval += atominfo[atomid].w*sqrtf(dx*dx + dy*dy + atominfo[atomid].z);
-   }*/
-   energygrid[outaddr] = 2;
-//   energygrid[outaddr] = curenergy + energyval;
+   }
+   energygrid[outaddr] = curenergy + energyval;
 }
 
 
 void launch_DSCv1(float * energyGrid, int boxDim, atom * molecule, float gridDist){
-    float *grid_dev, *spacing_dev, *grid; 
+    float *grid_dev, *spacing_dev, *spacing; 
     int *numatoms_dev;
-    int num = numAtoms;
-    int *num_host;
+    int *num;
     int allocateSize = sizeof(float) * boxDim*boxDim*boxDim;
+
     printf("\nInside the launch function.\n");
     print_vector(energyGrid, boxDim);
-    
-    //float * fltarray;
-    //fltarray = (float * ) malloc( boxDim*boxDim*boxDim  * sizeof(float));
+
+    spacing = (float*)malloc(sizeof(float));
+    *spacing = gridDist;
+    num = (int*)malloc(sizeof(int));
+    *num = numAtoms;
+ 
     errorChecking( cudaMalloc((void **) &grid_dev, allocateSize), __LINE__);
     errorChecking( cudaMalloc((void **) &spacing_dev, sizeof(float)), __LINE__);
     errorChecking( cudaMalloc((void **) &numatoms_dev, sizeof(int)), __LINE__);
- 
 /* 
     char *string_dev;
     char string [5] = {"abcd"};
@@ -80,15 +81,16 @@ void launch_DSCv1(float * energyGrid, int boxDim, atom * molecule, float gridDis
     errorChecking(cudaMalloc((void **) &string_dev, sizeof(char) * length), __LINE__);
     errorChecking(cudaMemcpy(string_dev, string, sizeof(char) * length, cudaMemcpyHostToDevice), __LINE__);
 */
+
     errorChecking(cudaMemcpy(grid_dev, energyGrid, allocateSize, cudaMemcpyHostToDevice), __LINE__);
-    errorChecking(cudaMemcpy(spacing_dev, &gridDist, sizeof(float), cudaMemcpyHostToDevice), __LINE__);
-    errorChecking(cudaMemcpy(numatoms_dev, &num, sizeof(int), cudaMemcpyHostToDevice), __LINE__); 
- //   errorChecking(cudaMemcpyToSymbol(atominfo, &molecule, sizeof(atom)*numAtoms, 0, cudaMemcpyHostToDevice), __LINE__);
+    errorChecking(cudaMemcpy(spacing_dev, spacing, sizeof(float), cudaMemcpyHostToDevice), __LINE__);
+    errorChecking(cudaMemcpy(numatoms_dev, num, sizeof(int), cudaMemcpyHostToDevice), __LINE__); 
+    errorChecking(cudaMemcpyToSymbol(atominfo, &molecule, sizeof(atom)*numAtoms, 0, cudaMemcpyHostToDevice), __LINE__);
 
     dim3 dimGrid(1, 1, 1);
     dim3 dimBlock(100, 100, 1);
     
-    DCSv1<<<dimGrid, dimBlock>>>(grid_dev, spacing_dev, numatoms_dev);
+    DCSv1<<<100, 100>>>(grid_dev, spacing_dev, numatoms_dev);
     errorChecking(cudaGetLastError(), __LINE__);
    
     // Step 4: Retrieve the results

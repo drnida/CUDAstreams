@@ -1,6 +1,8 @@
 #include <stdio.h>
 
 #define numAtoms 100
+#define BLOCK 32
+
 typedef struct {
   	float x;
   	float y;
@@ -31,18 +33,24 @@ __global__ void DCSv1(float *energygrid, float *gridspacing, int *numatoms){
    int xindex = blockDim.x * blockIdx.x + threadIdx.x;
    int yindex = blockDim.y * blockIdx.y + threadIdx.y;
    int outaddr = yindex * numAtoms + xindex;
-
+   //int num = *numatoms;   
+   //if(xindex > num || yindex > num) return;
+/*
    float curenergy = energygrid[outaddr];
    float coorx = (*gridspacing) * xindex;
    float coory = (*gridspacing) * yindex;
    int atomid;
    float energyval=0.0f;
+*/
+/*
    for (atomid=0; atomid<(*numatoms); atomid++) {
       float dx = coorx - atominfo[atomid].x;
       float dy = coory - atominfo[atomid].y;
       energyval += atominfo[atomid].w*sqrtf(dx*dx + dy*dy + atominfo[atomid].z);
    }
    energygrid[outaddr] = curenergy + energyval;
+*/
+   energygrid[outaddr] = threadIdx.y; 
 }
 
 
@@ -87,10 +95,13 @@ void launch_DSCv1(float * energyGrid, int boxDim, atom * molecule, float gridDis
     errorChecking(cudaMemcpy(numatoms_dev, num, sizeof(int), cudaMemcpyHostToDevice), __LINE__); 
     errorChecking(cudaMemcpyToSymbol(atominfo, &molecule, sizeof(atom)*numAtoms, 0, cudaMemcpyHostToDevice), __LINE__);
 
-    dim3 dimGrid(1, 1, 1);
-    dim3 dimBlock(100, 100, 1);
-    
-    DCSv1<<<100, 100>>>(grid_dev, spacing_dev, numatoms_dev);
+    int numWidth = ceil((float)boxDim/BLOCK);
+    int numHeight = ceil((float)boxDim/BLOCK);
+    printf("numWidth: %d, numHeight: %d\n", numWidth, numHeight);
+    dim3 dimGrid(numWidth, numHeight); 
+    dim3 dimBlock(BLOCK, BLOCK);
+    printf("Grid.y: %d, Block.y: %d\n", dimGrid.y, dimBlock.y);
+    DCSv1<<<dimGrid, dimBlock, 0>>>(grid_dev, spacing_dev, numatoms_dev);
     errorChecking(cudaGetLastError(), __LINE__);
    
     // Step 4: Retrieve the results

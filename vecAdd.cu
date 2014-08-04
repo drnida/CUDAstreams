@@ -8,7 +8,7 @@
 #include <stdio.h>
 
 #define numAtoms 100
-#define BLOCK 32
+#define BLOCK 16 
 
 struct atom {
    float x; float y; float z; float w;
@@ -130,9 +130,9 @@ int main(void) {
     }
 
     launch_DSCv1(energyGrid, boxDim, molecule, gridDist);
-/*
+
     printf("\nEnergy grid after kernel:\n");
     print_vector(energyGrid, boxDim);
-*/
+
     return 0;
 }

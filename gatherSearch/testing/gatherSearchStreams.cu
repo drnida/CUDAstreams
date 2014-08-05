@@ -63,7 +63,7 @@ __global__ void search_kernel(char * patterns_and_output, int pattern_length, ch
       }
    }
 
-   *result += count;
+   atomicAdd(result, count);
 }
 
 //The following two functions need attribution, since I stole them from K&R
@@ -107,12 +107,20 @@ int search(char * keys, int keys_length, int key_count, int data_length)
 {
    char * keys_dev;
    char * data_dev0;
+   char * data_dev1;
+   char * data_dev2;
    char * data = NULL;
    int numThreads = BLOCK;
    int data_bookmark = 0;
    int keys_bookmark = 0;
    int kernel_count = 0;
    int segment_length = 0;
+
+   cudaStream_t stream[3];
+
+   for( int i = 0; i < 3; ++ i){
+      errorChecking( cudaStreamCreate(&stream[i] ), __LINE__);
+   }
 
    keys_length = create_key_results_string("key_list.txt", &keys, &key_count);
 
@@ -124,11 +132,19 @@ int search(char * keys, int keys_length, int key_count, int data_length)
 
    errorChecking( cudaMalloc((void **) &data_dev0, sizeof(char) * BYTES_TO_SEARCH), 
          __LINE__);
+   errorChecking( cudaMalloc((void **) &data_dev1, sizeof(char) * BYTES_TO_SEARCH), 
+         __LINE__);
+   errorChecking( cudaMalloc((void **) &data_dev2, sizeof(char) * BYTES_TO_SEARCH), 
+         __LINE__);
+
 
    data_length = get_string_from_file("parsedComments.txt", &data, &data_bookmark); 
 
-   for(int i = 0; data_length - BYTES_TO_SEARCH * i > 0; ++i)
+   for(int i = 0, j = 0; data_length - BYTES_TO_SEARCH * i > 0; ++i, ++j)
    {
+      if(j==3)
+         j = 0;
+
       segment_length = data_length - BYTES_TO_SEARCH * i < BYTES_TO_SEARCH ?
                         data_length - BYTES_TO_SEARCH * i : BYTES_TO_SEARCH;
 
@@ -138,13 +154,29 @@ int search(char * keys, int keys_length, int key_count, int data_length)
       printf("dimGrid.x: %d Threads: %d \n" , dimGrid.x, dimBlock.x);
       printf("\nsegment_length:%d \n" , segment_length);
 
-      errorChecking( cudaMemcpy(data_dev0, 
+      if(j == 0)
+         errorChecking( cudaMemcpyAsync(data_dev0, 
                   (data+BYTES_TO_SEARCH*i), segment_length, 
-                  cudaMemcpyHostToDevice), __LINE__);
+                  cudaMemcpyHostToDevice, stream[j]), __LINE__);
+      if(j == 1)
+         errorChecking( cudaMemcpyAsync(data_dev1, 
+                  (data+BYTES_TO_SEARCH*i), segment_length, 
+                  cudaMemcpyHostToDevice, stream[j]), __LINE__);
+      if(j == 2)
+         errorChecking( cudaMemcpyAsync(data_dev2, 
+                  (data+BYTES_TO_SEARCH*i), segment_length, 
+                  cudaMemcpyHostToDevice, stream[j]), __LINE__);
 
       printf("\nKernel #%d\n", ++kernel_count);
-      search_kernel<<<dimGrid.x, dimBlock.x>>>
+      if(j == 0)
+         search_kernel<<<dimGrid.x, dimBlock.x, 0, stream[j]>>>
             (keys_dev, keys_length, data_dev0, segment_length);
+      if(j == 1)
+         search_kernel<<<dimGrid.x, dimBlock.x, 0, stream[j]>>>
+            (keys_dev, keys_length, data_dev1, segment_length);
+      if(j == 2)
+         search_kernel<<<dimGrid.x, dimBlock.x, 0, stream[j]>>>
+            (keys_dev, keys_length, data_dev2, segment_length);
    }
 
    cudaDeviceSynchronize();
@@ -169,8 +201,13 @@ int search(char * keys, int keys_length, int key_count, int data_length)
    }    
 
    fclose(outfile);
+   for(int i = 0; i < numStreams; ++i){ 
+      errorChecking(cudaStreamDestroy(stream[i]), __LINE__); 
+   }
 
    cudaFree(data_dev0);
+   cudaFree(data_dev1);
+   cudaFree(data_dev2);
    cudaFree(keys_dev);
    cudaFreeHost(keys);
    cudaFreeHost(data);

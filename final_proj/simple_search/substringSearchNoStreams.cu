@@ -1,6 +1,6 @@
 /* 
  * Compile with 
- * nvcc -gencode arch=compute_30,code=sm_30 substringSearch.cu
+ * nvcc -gencode arch=compute_30,code=sm_30 substringSearchNoStreams.cu
  */
 
 
@@ -22,22 +22,18 @@ void errorChecking(cudaError_t err, int line) {
     }
 }
 
-__global__ void search_kernel(char *string, int length, int offset, char *pattern,
+__global__ void search_kernel(char *string, int length, char *pattern,
         int patternLength) {
 
     int tx = threadIdx.x;
-    int idx = offset + blockDim.x * blockIdx.x + tx; 
-    int match = 0; 
-    __shared__ int count_shared;
+    int idx = blockDim.x * blockIdx.x + tx; 
 
     // dynamically allocated shared memory
+
     extern __shared__ char shared[];
     char *string_sh = &shared[0]; // size BLOCK + patternLength for halo data
     char *pattern_sh = &shared[BLOCK + patternLength]; 
 
-    // Load data into cache
-    if(tx == 0) 
-        count_shared = 0;
     // These threads load the pattern into shared plus the halo data
     if(tx < patternLength) {
         pattern_sh[tx] = pattern[tx];
@@ -53,19 +49,12 @@ __global__ void search_kernel(char *string, int length, int offset, char *patter
     }
 
     for(int j = 0; j < patternLength; ++j){
-       if((pattern_sh[j] ^ string_sh[tx + j]) == 0x0000 ) {
-          match += 1; 
+       if((pattern_sh[j] ^ string_sh[tx + j]) != 0x0000 ) {
+          return; 
        }
     }
 
-    if(match == patternLength) {
-       atomicAdd(&count_shared,1);
-    }
-
-    __syncthreads();
-
-    if (tx == 0)
-      atomicAdd(&count_dev, count_shared);
+    atomicAdd(&count_dev, 1);
 }
 
 // Checks for a match where the streams overlap
@@ -113,23 +102,10 @@ int boundary_check(char *string, char *pattern, int pattern_length, int stream_l
 void search(char * string, int length, char *pattern, int patternLength) {
     char * string_dev, *pattern_dev;
     int count = 0;
-    int streamOffset;
-    cudaStream_t stream[numStreams];
     int numThreads = BLOCK;
 
-    for( int i = 0; i < numStreams; ++ i){
-        errorChecking( cudaStreamCreate(&stream[i] ), __LINE__);
-    }
-    
-    int streamLength = ceil((float)length/numStreams);
-    int streamBytes = streamLength * sizeof(char);
-
-    printf("streamLength: %d, streamBytes %d\n", streamLength, streamBytes);    
-
-    dim3 dimGrid( ceil(streamLength/(float)numThreads), 1, 1);
+    dim3 dimGrid( ceil(length/(float)numThreads), 1, 1);
     dim3 dimBlock(numThreads, 1, 1);
-
-    printf("dimGrid.x: %d Threads: %d \n" , dimGrid.x, dimBlock.x);
 
     errorChecking( cudaMalloc((void **) &string_dev, sizeof(char) * length), 
         __LINE__);
@@ -138,29 +114,18 @@ void search(char * string, int length, char *pattern, int patternLength) {
 
     errorChecking( cudaMemcpyToSymbol(count_dev, &count, 
         sizeof(int), 0, cudaMemcpyHostToDevice), __LINE__);
-    errorChecking( cudaMemcpy(pattern_dev, pattern, patternLength + 1 * sizeof(char),
-        cudaMemcpyHostToDevice), __LINE__);   
-
-    for(int i = 0; i < numStreams; ++i){
-        streamOffset = i * streamLength;
-        printf("streamOffset is: %d\n", streamOffset);
-
-        errorChecking( cudaMemcpyAsync(&string_dev[streamOffset], 
-            &string[streamOffset],  streamLength * sizeof(char), 
-            cudaMemcpyHostToDevice, stream[i] ), __LINE__);
-    }    
+    errorChecking( cudaMemcpy(pattern_dev, pattern, 
+        patternLength + 1 * sizeof(char), cudaMemcpyHostToDevice), __LINE__);   
+    errorChecking( cudaMemcpy(string_dev, string,  length * sizeof(char), 
+        cudaMemcpyHostToDevice), __LINE__);
         
-    for(int i = 0; i < numStreams; ++i){
-        streamOffset = i * streamLength;
-        // sharedMem stores the lengths used in the kernel for shared memory
-        int sharedMem = (BLOCK+patternLength) * sizeof(char)+patternLength * sizeof(char);
-        search_kernel<<<dimGrid.x, dimBlock.x, sharedMem, stream[i]>>>(string_dev, 
-           length, streamOffset, pattern, patternLength);
+    // sharedMem stores the lengths used in the kernel for shared memory
+    int sharedMem = (BLOCK+patternLength) * sizeof(char)+patternLength * 
+       sizeof(char);
+    search_kernel<<<dimGrid.x, dimBlock.x, sharedMem >>>(string_dev, 
+        length, pattern, patternLength);
 
-        errorChecking(cudaGetLastError(), __LINE__);
-    }    
-
-    cudaStreamSynchronize(stream[2]); 
+    errorChecking(cudaGetLastError(), __LINE__);
     
     errorChecking(cudaMemcpyFromSymbol(&count, count_dev, 
         sizeof(int), 0, cudaMemcpyDeviceToHost), __LINE__);
@@ -168,10 +133,8 @@ void search(char * string, int length, char *pattern, int patternLength) {
     //count += boundary_check(string, pattern, patternLength, streamLength);    
     printf("Count is: %d\n", count);
   
-    for(int i = 0; i < numStreams; ++i){ 
-        errorChecking(cudaStreamDestroy(stream[i]), __LINE__); 
-    }
     cudaFree(string_dev);
+    cudaFree(pattern_dev);
 }
 
 // Grab data from external file
@@ -183,7 +146,6 @@ int get_string_from_file(char *filename, char **input) {
     file = fopen(filename, "r");
     fseek(file, 0, SEEK_END);
     length = ftell(file);
-    printf("File Length is: %d bytes.\n", length);
     int paddedLength = numStreams * ceil((float)length/numStreams);
     rewind(file);
 
@@ -252,9 +214,9 @@ int main(void) {
     int length = 1024;
     char *string, *pattern;
     int patternLength;
-    struct timeval start, end;
+    struct timeval start, end, diff;
     //length = generate_string(length, &string);
-    length = get_string_from_file("DATA/UnicodeSample.txt", &string); 
+    length = get_string_from_file("../DATA/UnicodeSample.txt", &string); 
     patternLength = get_pattern(&pattern);
     printf("Pattern is: %s\n", pattern); 
     printf("Padded length is: %d bytes.\n", length);
@@ -263,10 +225,13 @@ int main(void) {
     gettimeofday(&start, 0); 
     search(string, length, pattern, patternLength);
     gettimeofday(&end, 0); 
-
+    timersub(&start, &end, &diff);
+//    long long elapsed = end.tv_usec-start.tv_usec; 
     long long elapsed = (end.tv_sec-start.tv_sec)*1000000ll + end.tv_usec-start.tv_usec;
     printf("GPU Time: %lld \n", elapsed);
+    printf("GPU Time (no streams): %ld (msecs) \n", diff.tv_usec);
 
     cudaFreeHost(string);
+    cudaFreeHost(pattern);
     return 0;
 }

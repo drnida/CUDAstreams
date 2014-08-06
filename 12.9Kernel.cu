@@ -2,7 +2,7 @@
 
 #define numAtoms 100
 #define BLOCKSIZEX 16
-#define BLOCK 16 
+#define BLOCK 16
 
 struct atom {
    float x; float y; float z; float w;
@@ -27,14 +27,12 @@ void print_vector(float *array, int n) {
 }
 /* A function for printing out our data */
 void print_vector_slice(float *array, int n) {
-    for (int y=0; y<n; y++)
-	if(y < n){
+    for (int y=0; y<n; y++){
 		for (int x=0; x<n; x++)
-		if( x < n)
 			printf("%0.0f \n", array[y * n + x]);
-	}
+	//printf("\n");
 
-    printf("\n");
+    }
 }
 
 
@@ -43,6 +41,7 @@ __global__ void DCSv2(float *energygrid, float *gridspacing, int *numatoms){
    int xindex = blockDim.x * blockIdx.x + threadIdx.x;
    int yindex = blockDim.y * blockIdx.y + threadIdx.y;
    int outaddr = yindex * numAtoms + xindex;
+
    int num = *numatoms;   
    if(xindex > num || yindex > num) return;
 
@@ -84,14 +83,15 @@ __global__ void DCSv2(float *energygrid, float *gridspacing, int *numatoms){
    }
 
 //   __syncthreads();
-   energygrid[outaddr + 0 * block ] = 2; //energyvalx1 +1;
-   energygrid[outaddr + 1 * block ] = 3; //energyvalx2 +1;
-   energygrid[outaddr + 2 * block ] = 4; //energyvalx3 +1;
-   energygrid[outaddr + 3 * block ] = 5; //energyvalx4 +1;
-   energygrid[outaddr + 4 * block ] = 6; //energyvalx5 +1;
-   energygrid[outaddr + 5 * block ] = 7; //energyvalx6 +1;
-   energygrid[outaddr + 6 * block ] = 8; //energyvalx7 +1;
-   energygrid[outaddr + 7 * block ] = 9; //energyvalx8 +1;
+   
+   atomicAdd(&energygrid[outaddr + 0 * block ] ,  energyvalx1 );
+   atomicAdd(&energygrid[outaddr + 1 * block ] ,  energyvalx2 );
+   atomicAdd(&energygrid[outaddr + 2 * block ] ,  energyvalx3 );
+   atomicAdd(&energygrid[outaddr + 3 * block ] ,  energyvalx4 );
+   atomicAdd(&energygrid[outaddr + 4 * block ] ,  energyvalx5 );
+   atomicAdd(&energygrid[outaddr + 5 * block ] ,  energyvalx6 );
+   atomicAdd(&energygrid[outaddr + 6 * block ] ,  energyvalx7 );
+   atomicAdd(&energygrid[outaddr + 7 * block ] ,  energyvalx8 );
 }
 
 /* Launches cuda kernel */
@@ -172,7 +172,7 @@ int main(void) {
     launch_DSCv1(energyGrid, boxDim, molecule, gridDist);
 
     printf("\nEnergy grid after kernel:\n");
-   //print_vector(energyGrid, boxDim);
+   // print_vector(energyGrid, boxDim);
     print_vector_slice(energyGrid, boxDim);
 
     return 0;

@@ -28,8 +28,12 @@ void print_vector(float *array, int n) {
 /* A function for printing out our data */
 void print_vector_slice(float *array, int n) {
     for (int y=0; y<n; y++)
-        for (int x=0; x<n; x++)
-        printf("%0.0f \n", array[y * n + x]);
+	if(y < n){
+		for (int x=0; x<n; x++)
+		if( x < n)
+			printf("%0.0f \n", array[y * n + x]);
+	}
+
     printf("\n");
 }
 
@@ -44,7 +48,7 @@ __global__ void DCSv2(float *energygrid, float *gridspacing, int *numatoms){
 
    float coorx = (*gridspacing) * xindex;
    float coory = (*gridspacing) * yindex;
-   int block = BLOCKSIZEX;
+   int block = 16;//BLOCKSIZEX;
    float gridspacing_coalesce = (*gridspacing)*block;
 
    int atomid;
@@ -69,23 +73,25 @@ __global__ void DCSv2(float *energygrid, float *gridspacing, int *numatoms){
       float dx6 = dx5 + gridspacing_coalesce;
       float dx7 = dx6 + gridspacing_coalesce;
       float dx8 = dx7 + gridspacing_coalesce;
-      energyvalx1 += atominfo[atomid].w*sqrtf(dx1*dx1 + dyz2); 
-      energyvalx2 += atominfo[atomid].w*sqrtf(dx2*dx2 + dyz2); 
-      energyvalx3 += atominfo[atomid].w*sqrtf(dx3*dx3 + dyz2); 
-      energyvalx4 += atominfo[atomid].w*sqrtf(dx4*dx4 + dyz2); 
-      energyvalx5 += atominfo[atomid].w*sqrtf(dx5*dx5 + dyz2); 
-      energyvalx6 += atominfo[atomid].w*sqrtf(dx6*dx6 + dyz2); 
-      energyvalx7 += atominfo[atomid].w*sqrtf(dx7*dx7 + dyz2); 
-      energyvalx8 += atominfo[atomid].w*sqrtf(dx8*dx8 + dyz2); 
+      energyvalx1 += atominfo[atomid].w*rsqrtf(dx1*dx1 + dyz2); 
+      energyvalx2 += atominfo[atomid].w*rsqrtf(dx2*dx2 + dyz2); 
+      energyvalx3 += atominfo[atomid].w*rsqrtf(dx3*dx3 + dyz2); 
+      energyvalx4 += atominfo[atomid].w*rsqrtf(dx4*dx4 + dyz2); 
+      energyvalx5 += atominfo[atomid].w*rsqrtf(dx5*dx5 + dyz2); 
+      energyvalx6 += atominfo[atomid].w*rsqrtf(dx6*dx6 + dyz2); 
+      energyvalx7 += atominfo[atomid].w*rsqrtf(dx7*dx7 + dyz2); 
+      energyvalx7 += atominfo[atomid].w*rsqrtf(dx8*dx8 + dyz2); 
    }
-   energygrid[outaddr + 0 * block ] = energyvalx1 +1;
-   energygrid[outaddr + 1 * block ] = energyvalx2 +1;
-   energygrid[outaddr + 2 * block ] = energyvalx3 +1;
-   energygrid[outaddr + 3 * block ] = energyvalx4 +1;
-   energygrid[outaddr + 4 * block ] = energyvalx5 +1;
-   energygrid[outaddr + 5 * block ] = energyvalx6 +1;
-   energygrid[outaddr + 6 * block ] = energyvalx7 +1;
-   energygrid[outaddr + 7 * block ] = energyvalx8 +1;
+
+//   __syncthreads();
+   energygrid[outaddr + 0 * block ] = 2; //energyvalx1 +1;
+   energygrid[outaddr + 1 * block ] = 3; //energyvalx2 +1;
+   energygrid[outaddr + 2 * block ] = 4; //energyvalx3 +1;
+   energygrid[outaddr + 3 * block ] = 5; //energyvalx4 +1;
+   energygrid[outaddr + 4 * block ] = 6; //energyvalx5 +1;
+   energygrid[outaddr + 5 * block ] = 7; //energyvalx6 +1;
+   energygrid[outaddr + 6 * block ] = 8; //energyvalx7 +1;
+   energygrid[outaddr + 7 * block ] = 9; //energyvalx8 +1;
 }
 
 /* Launches cuda kernel */
@@ -94,7 +100,7 @@ void launch_DSCv1(float * energyGrid, int boxDim, atom * molecule,
     float *grid_dev, *spacing_dev, *spacing, *grid_dev_slice, *grid_slice;
     int *numatoms_dev;
     int *num;
-    int allocateSize = sizeof(float) * boxDim*boxDim*boxDim;
+    int allocateSize = sizeof(float) * (boxDim+28)*(boxDim+12);
  
     // Malloc memory for local host pointer variables used for copying data
     // to the device
@@ -120,8 +126,8 @@ void launch_DSCv1(float * energyGrid, int boxDim, atom * molecule,
 
 
     // Determine size of blocks and grid on device
-    int numWidth = ceil((float)boxDim/BLOCK);
-    int numHeight = ceil((float)boxDim/BLOCK);
+    int numWidth = ceil((float)boxDim+28/BLOCK);
+    int numHeight = ceil((float)boxDim+12/BLOCK);
     dim3 dimGrid(numWidth, numHeight);
     dim3 dimBlock(BLOCK, BLOCK);
 
@@ -137,9 +143,9 @@ void launch_DSCv1(float * energyGrid, int boxDim, atom * molecule,
        cudaMemcpyDeviceToHost), __LINE__);
 
     // Step 5: Free device memory
-    cudaFree(&grid_dev);
-    cudaFree(&spacing_dev);
-    cudaFree(&numatoms_dev);
+    cudaFree(grid_dev);
+    cudaFree(spacing_dev);
+    cudaFree(numatoms_dev);
 }
 
 int main(void) {
@@ -148,9 +154,11 @@ int main(void) {
     int boxDim = numAtoms;
     float *energyGrid;
     float gridDist = 1;
-    energyGrid = (float *) malloc(boxDim+28*boxDim+12*boxDim*sizeof(float));
 
-    for (int i = 0; i <  boxDim+28*boxDim+12*boxDim ; ++i){
+    int boxSize = (boxDim+28)*(boxDim+12);
+    energyGrid = (float *) malloc(boxSize*sizeof(float));
+
+    for (int i = 0; i <  boxSize ; ++i){
        energyGrid[i] = 1;
     }
 
@@ -164,7 +172,7 @@ int main(void) {
     launch_DSCv1(energyGrid, boxDim, molecule, gridDist);
 
     printf("\nEnergy grid after kernel:\n");
-    print_vector(energyGrid, boxDim);
+   //print_vector(energyGrid, boxDim);
     print_vector_slice(energyGrid, boxDim);
 
     return 0;

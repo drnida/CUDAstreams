@@ -28,7 +28,7 @@ void errorChecking(cudaError_t err, int line) {
 void print_vector(float *array, int n) {
     int i;
     for (i=0; i<n*n; i++)
-        printf("%0.0f ", array[i]);
+        printf("%0.0f \n", array[i]);
     printf("\n");
 }
 
@@ -55,7 +55,7 @@ __global__ void DCSv1(float *energygrid, float *gridspacing, int *numatoms){
    for (atomid=0; atomid<num; atomid++) {
       float dx = coorx - atominfo[atomid].x;
       float dy = coory - atominfo[atomid].y;
-      energyval += atominfo[atomid].w*sqrtf(dx*dx + dy*dy + atominfo[atomid].z);
+      energyval += atominfo[atomid].w*rsqrtf(dx*dx + dy*dy + atominfo[atomid].z);
    }
    energygrid[outaddr] = curenergy + energyval;
 }
@@ -66,7 +66,7 @@ void launch_DSCv1(float * energyGrid, int boxDim, atom * molecule,
     float *grid_dev, *spacing_dev, *spacing; 
     int *numatoms_dev;
     int *num;
-    int allocateSize = sizeof(float) * boxDim*boxDim*boxDim;
+    int allocateSize = sizeof(float) * boxDim*boxDim;
 
     // Malloc memory for local host pointer variables used for copying data
     // to the device
@@ -105,9 +105,9 @@ void launch_DSCv1(float * energyGrid, int boxDim, atom * molecule,
        cudaMemcpyDeviceToHost), __LINE__);
 
     // Step 5: Free device memory
-    cudaFree(&grid_dev);
-    cudaFree(&spacing_dev);
-    cudaFree(&numatoms_dev);
+    cudaFree(grid_dev);
+    cudaFree(spacing_dev);
+    cudaFree(numatoms_dev);
 }
 
 int main(void) {
@@ -116,9 +116,9 @@ int main(void) {
     int boxDim = numAtoms;
     float *energyGrid;
     float gridDist = 1; 
-    energyGrid = (float *) malloc(boxDim*boxDim*boxDim*sizeof(float)); 
+    energyGrid = (float *) malloc(boxDim*boxDim*sizeof(float)); 
 
-    for (int i = 0; i <  boxDim*boxDim*boxDim ; ++i){
+    for (int i = 0; i <  boxDim*boxDim; ++i){
        energyGrid[i] = 1;
     }
    

@@ -38,6 +38,7 @@ __global__ void search_kernel(char *string, int length, int offset,
     char *pattern_sh = &shared[BLOCK + patternLength]; 
 
     // These threads load the pattern into shared plus the halo data
+
     if(tx < patternLength) {
         pattern_sh[tx] = pattern[tx];
         shared[BLOCK + tx] = string[idx + BLOCK];
@@ -139,7 +140,6 @@ int get_string_from_file(char *filename, char **input) {
     file = fopen(filename, "r");
     fseek(file, 0, SEEK_END);
     length = ftell(file);
-    printf("File Length is: %d bytes.\n", length);
     int paddedLength = numStreams * ceil((float)length/numStreams);
     rewind(file);
 
@@ -209,7 +209,7 @@ int main(void) {
     int length = 1024;
     char *string, *pattern;
     int patternLength;
-    struct timeval start, end;
+    struct timeval start, end, diff;
     //length = generate_string(length, &string);
     length = get_string_from_file("../DATA/UnicodeSample.txt", &string); 
     patternLength = get_pattern(&pattern);
@@ -220,9 +220,10 @@ int main(void) {
     gettimeofday(&start, 0); 
     search(string, length, pattern, patternLength);
     gettimeofday(&end, 0); 
-
+    //timersub(&start, &end, &diff);
     long long elapsed = (end.tv_sec-start.tv_sec)*1000000ll + end.tv_usec-start.tv_usec;
     printf("GPU Time: %lld \n", elapsed);
+    //printf("GPU Time (streams): %ld (msecs) \n", diff.tv_usec);
 
     cudaFreeHost(string);
     cudaFreeHost(pattern);

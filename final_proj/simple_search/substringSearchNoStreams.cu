@@ -29,6 +29,7 @@ __global__ void search_kernel(char *string, int length, char *pattern,
     int idx = blockDim.x * blockIdx.x + tx; 
 
     // dynamically allocated shared memory
+
     extern __shared__ char shared[];
     char *string_sh = &shared[0]; // size BLOCK + patternLength for halo data
     char *pattern_sh = &shared[BLOCK + patternLength]; 
@@ -106,8 +107,6 @@ void search(char * string, int length, char *pattern, int patternLength) {
     dim3 dimGrid( ceil(length/(float)numThreads), 1, 1);
     dim3 dimBlock(numThreads, 1, 1);
 
-    printf("dimGrid.x: %d Threads: %d \n" , dimGrid.x, dimBlock.x);
-
     errorChecking( cudaMalloc((void **) &string_dev, sizeof(char) * length), 
         __LINE__);
     errorChecking( cudaMalloc((void **) &pattern_dev, sizeof(char) * patternLength + 1),
@@ -147,7 +146,6 @@ int get_string_from_file(char *filename, char **input) {
     file = fopen(filename, "r");
     fseek(file, 0, SEEK_END);
     length = ftell(file);
-    printf("File Length is: %d bytes.\n", length);
     int paddedLength = numStreams * ceil((float)length/numStreams);
     rewind(file);
 
@@ -216,7 +214,7 @@ int main(void) {
     int length = 1024;
     char *string, *pattern;
     int patternLength;
-    struct timeval start, end;
+    struct timeval start, end, diff;
     //length = generate_string(length, &string);
     length = get_string_from_file("../DATA/UnicodeSample.txt", &string); 
     patternLength = get_pattern(&pattern);
@@ -227,10 +225,13 @@ int main(void) {
     gettimeofday(&start, 0); 
     search(string, length, pattern, patternLength);
     gettimeofday(&end, 0); 
-
+    timersub(&start, &end, &diff);
+//    long long elapsed = end.tv_usec-start.tv_usec; 
     long long elapsed = (end.tv_sec-start.tv_sec)*1000000ll + end.tv_usec-start.tv_usec;
     printf("GPU Time: %lld \n", elapsed);
+    printf("GPU Time (no streams): %ld (msecs) \n", diff.tv_usec);
 
     cudaFreeHost(string);
+    cudaFreeHost(pattern);
     return 0;
 }

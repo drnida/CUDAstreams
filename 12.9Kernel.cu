@@ -1,7 +1,7 @@
 #include <stdio.h>
 
 #define numAtoms 100
-#define BLOCKSIZEX 32
+#define BLOCKSIZEX 16
 #define BLOCK 16 
 
 struct atom {
@@ -22,9 +22,17 @@ void errorChecking(cudaError_t err, int line) {
 void print_vector(float *array, int n) {
     int i;
     for (i=0; i<n*n; i++)
-        printf("%0.0f ", array[i]);
+        printf("%0.0f \n", array[i]);
     printf("\n");
 }
+/* A function for printing out our data */
+void print_vector_slice(float *array, int n) {
+    for (int y=0; y<n; y++)
+        for (int x=0; x<n; x++)
+        printf("%0.0f \n", array[y * n + x]);
+    printf("\n");
+}
+
 
 __global__ void DCSv2(float *energygrid, float *gridspacing, int *numatoms){
 
@@ -70,14 +78,14 @@ __global__ void DCSv2(float *energygrid, float *gridspacing, int *numatoms){
       energyvalx7 += atominfo[atomid].w*sqrtf(dx7*dx7 + dyz2); 
       energyvalx8 += atominfo[atomid].w*sqrtf(dx8*dx8 + dyz2); 
    }
-   energygrid[outaddr + 0 * block ] = energyvalx1;
-   energygrid[outaddr + 1 * block ] = energyvalx2;
-   energygrid[outaddr + 2 * block ] = energyvalx3;
-   energygrid[outaddr + 3 * block ] = energyvalx4;
-   energygrid[outaddr + 4 * block ] = energyvalx5;
-   energygrid[outaddr + 5 * block ] = energyvalx6;
-   energygrid[outaddr + 6 * block ] = energyvalx7;
-   energygrid[outaddr + 7 * block ] = energyvalx8;
+   energygrid[outaddr + 0 * block ] = energyvalx1 +1;
+   energygrid[outaddr + 1 * block ] = energyvalx2 +1;
+   energygrid[outaddr + 2 * block ] = energyvalx3 +1;
+   energygrid[outaddr + 3 * block ] = energyvalx4 +1;
+   energygrid[outaddr + 4 * block ] = energyvalx5 +1;
+   energygrid[outaddr + 5 * block ] = energyvalx6 +1;
+   energygrid[outaddr + 6 * block ] = energyvalx7 +1;
+   energygrid[outaddr + 7 * block ] = energyvalx8 +1;
 }
 
 /* Launches cuda kernel */
@@ -99,8 +107,8 @@ void launch_DSCv1(float * energyGrid, int boxDim, atom * molecule,
     errorChecking( cudaMalloc((void **) &grid_dev, allocateSize), __LINE__);
     errorChecking( cudaMalloc((void **) &spacing_dev, sizeof(float)), __LINE__);
     errorChecking( cudaMalloc((void **) &numatoms_dev, sizeof(int)), __LINE__);
-    errorChecking( cudaMalloc((void **) &grid_dev_slice, 
-        sizeof(float)*boxDim*boxDim));
+    //errorChecking( cudaMalloc((void **) &grid_dev_slice, 
+       // sizeof(float)*boxDim*boxDim));
 
     // Copy data to the device 
     errorChecking(cudaMemcpy(spacing_dev, spacing, sizeof(float),
@@ -140,9 +148,9 @@ int main(void) {
     int boxDim = numAtoms;
     float *energyGrid;
     float gridDist = 1;
-    energyGrid = (float *) malloc(boxDim*boxDim*boxDim*sizeof(float));
+    energyGrid = (float *) malloc(boxDim+28*boxDim+12*boxDim*sizeof(float));
 
-    for (int i = 0; i <  boxDim*boxDim*boxDim ; ++i){
+    for (int i = 0; i <  boxDim+28*boxDim+12*boxDim ; ++i){
        energyGrid[i] = 1;
     }
 
@@ -157,6 +165,7 @@ int main(void) {
 
     printf("\nEnergy grid after kernel:\n");
     print_vector(energyGrid, boxDim);
+    print_vector_slice(energyGrid, boxDim);
 
     return 0;
 }

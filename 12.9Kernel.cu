@@ -2,7 +2,7 @@
  * Kristina Frye
  * Dean Nida
  * August 7, 2014
- * HW 4, #1
+ * HW 4, #3
  */
 
 #include <stdio.h>

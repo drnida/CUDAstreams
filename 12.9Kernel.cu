@@ -1,3 +1,10 @@
+/* 
+ * Kristina Frye
+ * Dean Nida
+ * August 7, 2014
+ * HW 4, #1
+ */
+
 #include <stdio.h>
 
 #define numAtoms 100

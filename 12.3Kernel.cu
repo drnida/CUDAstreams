@@ -32,15 +32,12 @@ void print_vector(float *array, int n) {
     printf("\n");
 }
 
-
-
 void print_vector_slice(float *array, int n) {
-    for (int y=0; y<n; y++){
-		for (int x=0; x<n; x++)
-			printf("%0.0f ", array[y * n + x]);
-
-    printf("\n");
-    }
+   for (int y=0; y<n; y++) {
+      for (int x=0; x<n; x++)
+ 	 printf("%0.0f ", array[y * n + x]);
+      printf("\n");
+   }
 }
 
 /* Cuda Kernel function */

@@ -35,13 +35,11 @@ void print_vector(float *array, int n) {
 /* A function for printing out our data */
 void print_vector_slice(float *array, int n) {
     for (int y=0; y<n; y++){
-		for (int x=0; x<n; x++)
-			printf("%0.0f \n", array[y * n + x]);
+	for (int x=0; x<n; x++)
+	   printf("%0.0f \n", array[y * n + x]);
 	//printf("\n");
-
     }
 }
-
 
 __global__ void DCSv2(float *energygrid, float *gridspacing, int *numatoms){
 
@@ -88,9 +86,9 @@ __global__ void DCSv2(float *energygrid, float *gridspacing, int *numatoms){
       energyvalx7 += atominfo[atomid].w*rsqrtf(dx7*dx7 + dyz2); 
       energyvalx7 += atominfo[atomid].w*rsqrtf(dx8*dx8 + dyz2); 
    }
-
-//   __syncthreads();
-   
+  
+   // using an atomic add because multiple threads are writing
+   // to the same array index
    atomicAdd(&energygrid[outaddr + 0 * block ] ,  energyvalx1 );
    atomicAdd(&energygrid[outaddr + 1 * block ] ,  energyvalx2 );
    atomicAdd(&energygrid[outaddr + 2 * block ] ,  energyvalx3 );

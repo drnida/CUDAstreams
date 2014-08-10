@@ -30,19 +30,15 @@ void errorChecking(cudaError_t err, int line) {
 __global__ void search_kernel(char * pattern, int pattern_length, char * string, int string_length, int streamNum) {
    int tx = threadIdx.x;
    int idx = blockDim.x * blockIdx.x + tx; 
-   //extern __shared__ char shared[];
-   //char *string_sh = &shared[0];
-   //char *pattern_sh = &shared[BLOCK + pattern_length];
+   extern __shared__ char pattern_sh[];
 
-   //if(tx < pattern_length) {
-      //pattern_sh[tx] = pattern[tx];
-      //shared[BLOCK + tx] = string[idx + BLOCK];
-   //}
-   //string_sh[tx] = string[idx];
-   //__syncthreads();
+   if(tx < pattern_length) {
+      pattern_sh[tx] = pattern[tx];
+   }
+   __syncthreads();
 
    for(int j = 0; j < pattern_length; ++j)
-      if(pattern[j] ^ string[idx + j])
+      if(pattern_sh[j] ^ string[idx + j])
          return;
 
    atomicAdd(&count_dev[streamNum],1);
@@ -184,9 +180,9 @@ int count_keys_in_file(char *filename, char * string_dev, int string_length, cud
 
 
         }
-          
        for(int i = 0; i < j; ++i){
-          search_kernel<<<dimGrid.x, dimBlock.x, 0, stream[i]>>>
+         int sharedMem = sizeof(char) * length[i]; 
+          search_kernel<<<dimGrid.x, dimBlock.x, sharedMem, stream[i]>>>
              (&pattern_dev[i*1024], length[i], string_dev, string_length, i);
 
           errorChecking(cudaGetLastError(), __LINE__);

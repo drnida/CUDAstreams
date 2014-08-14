@@ -1,7 +1,6 @@
-/* SCRATCH CODE
-   Compile with nvcc -gencode arch=compute_30,code=sm_30 substringSearch.cu
+/* 
+   Compile with nvcc -gencode arch=compute_30,code=sm_30 twitterSearch.cu 
  */
-
 
 #include <stdio.h>
 #include <sys/time.h>
@@ -29,18 +28,19 @@ __global__ void search_kernel(char * pattern, int pattern_length, char * string,
    int tx = threadIdx.x;
    int idx = offset + blockDim.x * blockIdx.x + tx; 
    //extern __shared__ char shared[];
+   extern __shared__ char pattern_sh[];
    //char *string_sh = &shared[0];
    //char *pattern_sh = &shared[BLOCK + pattern_length];
 
-   //if(tx < pattern_length) {
-      //pattern_sh[tx] = pattern[tx];
+   if(tx < pattern_length) {
+      pattern_sh[tx] = pattern[tx];
       //shared[BLOCK + tx] = string[idx + BLOCK];
-   //}
+   }
    //string_sh[tx] = string[idx];
-   //__syncthreads();
+   __syncthreads();
 
    for(int j = 0; j < pattern_length; ++j)
-      if(pattern[j] ^ string[idx + j])
+      if(pattern_sh[j] ^ string[idx + j])
          return;
 
    atomicAdd(&count_dev,1);
@@ -101,12 +101,12 @@ int search(char * pattern, int pattern_length, char * string, int string_length)
    int streamLength = ceil((float)string_length/numStreams);
    int streamBytes = streamLength * sizeof(char);
 
-   printf("streamLength: %d, streamBytes %d\n", streamLength, streamBytes);    
+   //printf("streamLength: %d, streamBytes %d\n", streamLength, streamBytes);    
 
    dim3 dimGrid( ceil(streamLength/(float)numThreads), 1, 1);
    dim3 dimBlock(numThreads, 1, 1);
 
-   printf("dimGrid.x: %d Threads: %d \n" , dimGrid.x, dimBlock.x);
+   //printf("dimGrid.x: %d Threads: %d \n" , dimGrid.x, dimBlock.x);
 
    errorChecking( cudaMalloc((void **) &string_dev, sizeof(char) * string_length), 
          __LINE__);
@@ -120,7 +120,7 @@ int search(char * pattern, int pattern_length, char * string, int string_length)
 
    for(int i = 0; i < numStreams; ++i){
       streamOffset = i * streamLength;
-      printf("streamOffset is: %d\n", streamOffset);
+      //printf("streamOffset is: %d\n", streamOffset);
 
       errorChecking( cudaMemcpyAsync(pattern_dev, 
                pattern,  pattern_length * sizeof(char), 
@@ -131,12 +131,12 @@ int search(char * pattern, int pattern_length, char * string, int string_length)
                cudaMemcpyHostToDevice, stream[i] ), __LINE__);
 
    }    
-   //int sharedMem = (BLOCK+pattern_length) * sizeof(char)+pattern_length * sizeof(char);
+   int sharedMem = (BLOCK+pattern_length) * sizeof(char);
    for(int i = 0; i < numStreams; ++i){
       streamOffset = i * streamLength; 
       
                                           //VVV sharedMem goes here
-      search_kernel<<<dimGrid.x, dimBlock.x, 0, stream[i]>>>
+      search_kernel<<<dimGrid.x, dimBlock.x, sharedMem, stream[i]>>>
          (pattern_dev, pattern_length, string_dev, string_length, streamOffset);
 
       errorChecking(cudaGetLastError(), __LINE__);
@@ -147,7 +147,7 @@ int search(char * pattern, int pattern_length, char * string, int string_length)
    errorChecking(cudaMemcpyFromSymbol(&count, count_dev, 
             sizeof(int), 0, cudaMemcpyDeviceToHost), __LINE__);
 
-   printf("Count is: %d\n", count);
+//   printf("Count is: %d\n", count);
 
    for(int i = 0; i < numStreams; ++i){ 
       errorChecking(cudaStreamDestroy(stream[i]), __LINE__); 

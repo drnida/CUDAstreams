@@ -75,13 +75,10 @@ void search(char * string, int length, char *pattern, int patternLength) {
     
     // Determine stream size based upon number of streams and input data 
     int streamLength = ceil((float)length/numStreams);
-    int streamBytes = streamLength * sizeof(char);
-    //printf("streamLength: %d, streamBytes %d\n", streamLength, streamBytes);
 
     // Determine size of the grid and blocks 
     dim3 dimGrid( ceil(streamLength/(float)numThreads), 1, 1);
     dim3 dimBlock(numThreads, 1, 1);
-    //printf("dimGrid.x: %d Threads: %d \n" , dimGrid.x, dimBlock.x);
 
     // Malloc memory on the device
     errorChecking( cudaMalloc((void **) &string_dev, sizeof(char) * length), 
@@ -98,8 +95,6 @@ void search(char * string, int length, char *pattern, int patternLength) {
     // Copy streams data to the device  
     for(int i = 0; i < numStreams; ++i) {
         streamOffset = i * streamLength;
-        // printf("streamOffset is: %d\n", streamOffset);
-
         errorChecking( cudaMemcpyAsync(&string_dev[streamOffset], 
             &string[streamOffset],  streamLength * sizeof(char), 
             cudaMemcpyHostToDevice, stream[i] ), __LINE__);
@@ -118,11 +113,8 @@ void search(char * string, int length, char *pattern, int patternLength) {
     }    
 
     cudaStreamSynchronize(stream[2]); 
-    
     errorChecking(cudaMemcpyFromSymbol(&count, count_dev, 
         sizeof(int), 0, cudaMemcpyDeviceToHost), __LINE__);
-    
-    //count += boundary_check(string, pattern, patternLength, streamLength);    
     printf("Count is: %d\n", count);
   
     for(int i = 0; i < numStreams; ++i){ 
@@ -209,21 +201,16 @@ int main(void) {
     int length = 1024;
     char *string, *pattern;
     int patternLength;
-    struct timeval start, end, diff;
-    //length = generate_string(length, &string);
+    struct timeval start, end;
     length = get_string_from_file("../DATA/UnicodeSample.txt", &string); 
     patternLength = get_pattern(&pattern);
     printf("Pattern is: %s\n", pattern); 
-    printf("Padded length is: %d bytes.\n", length);
-    //printf("Input is: %s.\n", string);
 
     gettimeofday(&start, 0); 
     search(string, length, pattern, patternLength);
     gettimeofday(&end, 0); 
-    //timersub(&start, &end, &diff);
     long long elapsed = (end.tv_sec-start.tv_sec)*1000000ll + end.tv_usec-start.tv_usec;
     printf("GPU Time: %lld \n", elapsed);
-    //printf("GPU Time (streams): %ld (msecs) \n", diff.tv_usec);
 
     cudaFreeHost(string);
     cudaFreeHost(pattern);

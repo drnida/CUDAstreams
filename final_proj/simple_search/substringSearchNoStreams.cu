@@ -57,48 +57,6 @@ __global__ void search_kernel(char *string, int length, char *pattern,
     atomicAdd(&count_dev, 1);
 }
 
-// Checks for a match where the streams overlap
-int boundary_check(char *string, char *pattern, int pattern_length, int stream_length) {
-    int match = 0;
-    int pattern_pos, start_pos, end_pos;
-
-    for(int i = 1; i <= numStreams; i++) {
-        // There might be a valid match that includes all characters in the pattern but 
-        // the last one. This is pos (stream_length - 1) - pattern_length - 1.
-        // There might also be a match that includes just the first character in the
-        // pattern. This match would end at pos (stream_length - 1) + pattern_length - 1 
-        start_pos = stream_length * i - pattern_length - 2;
-        end_pos = stream_length * i + pattern_length - 1;
-        pattern_pos = 0;
-        
-        // if a match is found in previous for loop, break from loop.
-        // The length of the interval is only long enough for a maximum of one
-        // match
-        if(match == pattern_length) break;
-  
-        for(int j = start_pos; j < end_pos; j++) {
-            // Check for char match. If found, increment and continue.
-            // Otherwise, reset
-            if(string[j] == pattern[pattern_pos]) {
-                pattern_pos++;
-                match++;
-
-                // If match is found, break from the loop
-                if(match == pattern_length) break;
-            }
-
-            else {
-                pattern_pos = 0;
-                match = 0;
-            }
-        }
-    }
-    if(match == pattern_length) 
-        return 1;
-    else   
-        return 0;
-}
-
 void search(char * string, int length, char *pattern, int patternLength) {
     char * string_dev, *pattern_dev;
     int count = 0;
@@ -130,7 +88,6 @@ void search(char * string, int length, char *pattern, int patternLength) {
     errorChecking(cudaMemcpyFromSymbol(&count, count_dev, 
         sizeof(int), 0, cudaMemcpyDeviceToHost), __LINE__);
     
-    //count += boundary_check(string, pattern, patternLength, streamLength);    
     printf("Count is: %d\n", count);
   
     cudaFree(string_dev);
@@ -215,18 +172,14 @@ int main(void) {
     char *string, *pattern;
     int patternLength;
     struct timeval start, end, diff;
-    //length = generate_string(length, &string);
     length = get_string_from_file("../DATA/UnicodeSample.txt", &string); 
     patternLength = get_pattern(&pattern);
     printf("Pattern is: %s\n", pattern); 
-    printf("Padded length is: %d bytes.\n", length);
-    //printf("Input is: %s.\n", string);
 
     gettimeofday(&start, 0); 
     search(string, length, pattern, patternLength);
     gettimeofday(&end, 0); 
     timersub(&start, &end, &diff);
-//    long long elapsed = end.tv_usec-start.tv_usec; 
     long long elapsed = (end.tv_sec-start.tv_sec)*1000000ll + end.tv_usec-start.tv_usec;
     printf("GPU Time: %lld \n", elapsed);
     printf("GPU Time (no streams): %ld (msecs) \n", diff.tv_usec);
